@@ -518,3 +518,31 @@ input[type="file"] { display: none; }
   .metrics { gap: 8px; }
   .metric  { font-size: .78rem; }
 }
+
+/* ── Log panel ───────────────────────────────────────────────────────────── */
+
+.log-panel {
+  margin-top: 12px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.log-panel pre {
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: .78rem;
+  line-height: 1.5;
+  color: var(--text);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.btn-icon.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}

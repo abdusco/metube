@@ -70,6 +70,13 @@ function app() {
     // ── theme ─────────────────────────────────────────────────────────────────
     theme: /** @type {Theme} */ (localStorage.getItem('metube_theme') || 'auto'),
 
+    // ── logs ──────────────────────────────────────────────────────────────────
+    /** @type {string|null} id of the download whose log panel is open */
+    openLogsId: null,
+    /** @type {Object.<string, string[]>} */
+    logs: {},
+    _logsTimer: null,
+
     // ── internals ─────────────────────────────────────────────────────────────
     _polling: false,
     _mq: null,
@@ -280,6 +287,37 @@ function app() {
     async deleteCookies() {
       await fetch('delete-cookies', { method: 'POST' });
       await this._refreshCookieStatus();
+    },
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Logs
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Toggle the log panel for a download. Only one panel open at a time.
+     * @param {string} id
+     */
+    toggleLogs(id) {
+      if (this.openLogsId === id) {
+        this.openLogsId = null;
+        clearInterval(this._logsTimer);
+        this._logsTimer = null;
+      } else {
+        this.openLogsId = id;
+        this._fetchLogs(id);
+        clearInterval(this._logsTimer);
+        this._logsTimer = setInterval(() => {
+          if (this.openLogsId) this._fetchLogs(this.openLogsId);
+        }, 5000);
+      }
+    },
+
+    /** @param {string} id */
+    async _fetchLogs(id) {
+      try {
+        const resp = await fetch('logs?id=' + encodeURIComponent(id));
+        if (resp.ok) this.logs = { ...this.logs, [id]: await resp.json() };
+      } catch { /* ignore */ }
     },
 
     // ══════════════════════════════════════════════════════════════════════════

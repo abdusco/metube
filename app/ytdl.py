@@ -237,12 +237,13 @@ class DownloadInfo:
         self.live_status = live_status
         self.live_release_timestamp = live_release_timestamp
         self.subtitle_files = []
+        self.logs: list = []
 
     # Fields that are useful server-side but must not be broadcast to browser
     # clients: ``entry`` is the full yt-dlp info-dict (potentially large and
     # re-sent on every progress tick) and ``subtitle_files`` is only used
     # internally to derive the primary caption ``filename``.
-    _PUBLIC_EXCLUDED_FIELDS = ("entry", "subtitle_files")
+    _PUBLIC_EXCLUDED_FIELDS = ("entry", "subtitle_files", "logs")
 
     def to_public_dict(self) -> dict:
         """Return the client-facing view, omitting server-only/bulky fields."""
@@ -326,6 +327,8 @@ class DownloadInfo:
             self.live_status = None
         if not hasattr(self, "live_release_timestamp"):
             self.live_release_timestamp = None
+        if not hasattr(self, "logs"):
+            self.logs = []
 
 
 _PERSISTED_DOWNLOAD_FIELDS = (
@@ -495,6 +498,20 @@ class Download:
                     else:
                         log.warning("SplitChapters finished but no chapter files found in info_dict")
 
+            _sq = self.status_queue
+            class _YtdlLogger:
+                def debug(self, msg):
+                    # yt-dlp prefixes verbose-only lines with '[debug] '; skip unless verbose mode
+                    if msg.startswith('[debug] ') and not debug_logging:
+                        return
+                    _sq.put({'log': msg})
+                def info(self, msg):  # yt-dlp never calls this, kept for completeness
+                    _sq.put({'log': msg})
+                def warning(self, msg):
+                    _sq.put({'log': f'[WARNING] {msg}'})
+                def error(self, msg):
+                    _sq.put({'log': f'[ERROR] {msg}'})
+
             ytdl_params = {
                 **self.ytdl_opts,
                 'quiet': not debug_logging,
@@ -507,6 +524,7 @@ class Download:
                 'ignore_no_formats_error': True,
                 'progress_hooks': [put_status],
                 'postprocessor_hooks': [put_status_postprocessor],
+                'logger': _YtdlLogger(),
             }
 
             # Add chapter splitting options if enabled
@@ -590,6 +608,9 @@ class Download:
             if self.canceled:
                 log.info(f"Download {self.info.title} is canceled; stopping status updates.")
                 return
+            if 'log' in status:
+                self.info.logs.append(status['log'])
+                continue
             self.tmpfilename = status.get('tmpfilename')
             if 'filename' in status:
                 fileName = status.get('filename')

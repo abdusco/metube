@@ -755,6 +755,19 @@ async def queue_state(request):
     state = dqueue.get()
     return web.Response(text=serializer.encode(state), content_type='application/json')
 
+@routes.get(config.URL_PREFIX + 'logs')
+async def get_logs(request):
+    dl_id = request.query.get('id')
+    if not dl_id:
+        raise web.HTTPBadRequest(reason='missing id')
+    dl = (
+        dqueue.queue.dict.get(dl_id)
+        or dqueue.done.dict.get(dl_id)
+        or dqueue.pending.dict.get(dl_id)
+    )
+    lines = dl.info.logs if dl is not None else []
+    return web.Response(text=serializer.encode(lines), content_type='application/json')
+
 @routes.get(config.URL_PREFIX + 'configuration')
 async def configuration(request):
     return web.Response(text=serializer.encode(config.frontend_safe()), content_type='application/json')
@@ -811,6 +824,7 @@ app.router.add_route('OPTIONS', config.URL_PREFIX + 'add', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'cancel-add', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'upload-cookies', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'delete-cookies', add_cors)
+app.router.add_route('OPTIONS', config.URL_PREFIX + 'logs', add_cors)
 
 async def on_prepare(request, response):
     origin = request.headers.get('Origin')

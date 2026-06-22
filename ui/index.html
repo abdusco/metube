@@ -180,6 +180,7 @@
                 <a :href="dl.url" target="_blank" rel="noopener" x-text="dl.title || dl.url"></a>
               </div>
               <div class="dl-actions">
+                <button class="btn-icon" :class="{ active: openLogsId === dl.id }" @click="toggleLogs(dl.id)" title="Logs">≡</button>
                 <button class="btn-icon danger" @click="deleteDownload(dl.id, 'queue')" title="Remove">✕</button>
               </div>
             </div>
@@ -198,6 +199,10 @@
               <span x-show="dl.eta"     x-text="`ETA ${formatEta(dl.eta)}`"></span>
               <span x-show="dl.status !== 'downloading'" x-text="dl.status"></span>
               <span x-text="badge(dl)" style="margin-left:auto; opacity:.7"></span>
+            </div>
+
+            <div x-show="openLogsId === dl.id" class="log-panel">
+              <pre x-text="(logs[dl.id] || []).join('\n') || '(no logs yet)'"></pre>
             </div>
           </div>
         </template>
@@ -240,6 +245,7 @@
                   @click="retryDownload(dl)"
                   title="Retry"
                 >↺</button>
+                <button class="btn-icon" :class="{ active: openLogsId === dl.id }" @click="toggleLogs(dl.id)" title="Logs">≡</button>
                 <button class="btn-icon danger" @click="deleteDownload(dl.id, 'done')" title="Remove">✕</button>
               </div>
             </div>
@@ -251,7 +257,11 @@
               <a :href="dl.url" target="_blank" rel="noopener" class="source-link">source</a>
             </div>
 
-            <div x-show="dl.status === 'error' && (dl.error || dl.msg)" class="error-detail" x-text="dl.error || dl.msg"></div>
+            <div x-show="dl.status === 'error'" class="error-banner">Download failed — open logs for details.</div>
+
+            <div x-show="openLogsId === dl.id" class="log-panel">
+              <pre x-text="(logs[dl.id] || []).join('\n') || '(no logs yet)'"></pre>
+            </div>
 
             <!-- Chapter files -->
             <template x-if="dl.chapter_files && dl.chapter_files.length">
