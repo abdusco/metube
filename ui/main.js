@@ -119,8 +119,8 @@ function app() {
         const resp = await fetch('queue');
         if (!resp.ok) return;
         const [q, d] = await resp.json();
-        this.queue = q.map(([id, dl]) => ({ ...dl, id }));
-        this.done  = d.map(([id, dl]) => ({ ...dl, id }));
+        this.queue = q.map(([id, dl]) => ({ ...dl, id })).reverse();
+        this.done  = d.map(([id, dl]) => ({ ...dl, id })).reverse();
       } catch { /* network blip – keep previous state */ } finally {
         this._polling = false;
       }
