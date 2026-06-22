@@ -202,6 +202,7 @@ class DownloadInfo:
         chapter_template,
         subtitle_language="en",
         subtitle_mode="prefer_manual",
+        subtitle_langs=None,
         ytdl_options_presets=None,
         ytdl_options_overrides=None,
         clip_start=None,
@@ -230,6 +231,7 @@ class DownloadInfo:
         self.chapter_template = chapter_template
         self.subtitle_language = subtitle_language
         self.subtitle_mode = subtitle_mode
+        self.subtitle_langs = list(subtitle_langs) if subtitle_langs else []
         self.ytdl_options_presets = list(ytdl_options_presets or [])
         self.ytdl_options_overrides = dict(ytdl_options_overrides or {})
         self.clip_start = clip_start
@@ -239,11 +241,10 @@ class DownloadInfo:
         self.subtitle_files = []
         self.logs: list = []
 
-    # Fields that are useful server-side but must not be broadcast to browser
-    # clients: ``entry`` is the full yt-dlp info-dict (potentially large and
-    # re-sent on every progress tick) and ``subtitle_files`` is only used
-    # internally to derive the primary caption ``filename``.
-    _PUBLIC_EXCLUDED_FIELDS = ("entry", "subtitle_files", "logs")
+    # Fields excluded from the client-facing /queue response.
+    # ``entry`` is the full yt-dlp info-dict (potentially large, re-sent on every
+    # progress tick); ``logs`` is fetched separately via GET /logs.
+    _PUBLIC_EXCLUDED_FIELDS = ("entry", "logs")
 
     def to_public_dict(self) -> dict:
         """Return the client-facing view, omitting server-only/bulky fields."""
@@ -303,6 +304,8 @@ class DownloadInfo:
             self.subtitle_language = "en"
         if not hasattr(self, "subtitle_mode"):
             self.subtitle_mode = "prefer_manual"
+        if not hasattr(self, "subtitle_langs"):
+            self.subtitle_langs = []
         legacy_preset = self.__dict__.pop("ytdl_options_preset", None)
         if "ytdl_options_presets" not in self.__dict__:
             if isinstance(legacy_preset, str) and legacy_preset.strip():
@@ -346,6 +349,7 @@ _PERSISTED_DOWNLOAD_FIELDS = (
     "chapter_template",
     "subtitle_language",
     "subtitle_mode",
+    "subtitle_langs",
     "ytdl_options_presets",
     "ytdl_options_overrides",
     "clip_start",
@@ -359,6 +363,7 @@ _PERSISTED_DOWNLOAD_FIELDS = (
     "filename",
     "size",
     "chapter_files",
+    "subtitle_files",
 )
 
 
@@ -442,6 +447,7 @@ class Download:
             ytdl_opts,
             subtitle_language=getattr(info, 'subtitle_language', 'en'),
             subtitle_mode=getattr(info, 'subtitle_mode', 'prefer_manual'),
+            subtitle_langs=getattr(info, 'subtitle_langs', []),
         )
         if "impersonate" in self.ytdl_opts:
             self.ytdl_opts["impersonate"] = yt_dlp.networking.impersonate.ImpersonateTarget.from_str(self.ytdl_opts["impersonate"])
@@ -478,14 +484,11 @@ class Download:
                     else:
                         filename = filepath
                     self.status_queue.put({'status': 'finished', 'filename': filename})
-                    # For captions-only downloads, yt-dlp may still report a media-like
-                    # filepath in MoveFiles. Capture subtitle outputs explicitly so the
-                    # UI can link to real caption files.
-                    if getattr(self.info, 'download_type', '') == 'captions':
-                        requested_subtitles = d.get('info_dict', {}).get('requested_subtitles', {}) or {}
-                        for subtitle in requested_subtitles.values():
-                            if isinstance(subtitle, dict) and subtitle.get('filepath'):
-                                self.status_queue.put({'subtitle_file': subtitle['filepath']})
+                    # Capture subtitle files from any download type that requested them.
+                    requested_subtitles = d.get('info_dict', {}).get('requested_subtitles', {}) or {}
+                    for subtitle in requested_subtitles.values():
+                        if isinstance(subtitle, dict) and subtitle.get('filepath'):
+                            self.status_queue.put({'subtitle_file': subtitle['filepath']})
 
                 # Capture all chapter files when SplitChapters finishes
                 elif d.get('postprocessor') == 'SplitChapters' and d.get('status') == 'finished':

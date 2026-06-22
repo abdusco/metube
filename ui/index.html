@@ -117,6 +117,17 @@
     <details class="advanced">
       <summary>Advanced</summary>
 
+      <div>
+        <label for="subtitle-langs">Subtitle languages</label>
+        <input
+          id="subtitle-langs"
+          type="text"
+          x-model="subtitleLangsInput"
+          placeholder="en, de, zh-CN  (empty = no subtitles)"
+          spellcheck="false"
+        >
+      </div>
+
       <div class="cookie-tabs">
         <button class="tab-btn" :class="{ active: cookieTab === 'file' }" @click="cookieTab = 'file'">Upload file</button>
         <button class="tab-btn" :class="{ active: cookieTab === 'paste' }" @click="cookieTab = 'paste'">Paste text</button>
@@ -270,6 +281,18 @@
                   <div class="dl-meta" style="margin-top:4px">
                     <a :href="downloadUrl({...dl, filename: ch.filename})" x-text="ch.filename" :download="ch.filename"></a>
                     <span x-text="formatBytes(ch.size)"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <!-- Subtitle files -->
+            <template x-if="dl.subtitle_files && dl.subtitle_files.length">
+              <div style="margin-top:8px; padding-left:12px; border-left:2px solid var(--border)">
+                <template x-for="(sf, i) in dl.subtitle_files" :key="i">
+                  <div class="dl-meta" style="margin-top:4px">
+                    <a :href="downloadUrl({...dl, filename: sf.filename})" x-text="sf.filename" :download="sf.filename"></a>
+                    <span x-text="formatBytes(sf.size)"></span>
                   </div>
                 </template>
               </div>

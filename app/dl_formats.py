@@ -82,6 +82,7 @@ def get_opts(
     ytdl_opts: dict,
     subtitle_language: str = "en",
     subtitle_mode: str = "prefer_manual",
+    subtitle_langs: list = (),
 ) -> dict:
     """
     Returns extra yt-dlp options/postprocessors.
@@ -156,6 +157,12 @@ def get_opts(
             opts["writesubtitles"] = True
             opts["writeautomaticsub"] = True
             opts["subtitleslangs"] = [language, f"{language}-orig"]
+
+    if download_type in ("video", "audio") and subtitle_langs:
+        opts["writesubtitles"] = True
+        opts["writeautomaticsub"] = True
+        # interleave manual + auto variants per language: ["en", "en-orig", "de", "de-orig"]
+        opts["subtitleslangs"] = [v for lang in subtitle_langs for v in (lang, f"{lang}-orig")]
 
     opts["postprocessors"] = postprocessors + (
         opts["postprocessors"] if "postprocessors" in opts else []

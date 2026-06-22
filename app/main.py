@@ -538,6 +538,16 @@ def parse_download_options(post: dict) -> dict:
     codec = str(codec or 'auto').strip().lower()
     format = str(format or '').strip().lower()
     quality = str(quality).strip().lower()
+    raw_langs = post.get("subtitle_langs") or []
+    if isinstance(raw_langs, str):
+        raw_langs = [l.strip() for l in raw_langs.split(",") if l.strip()]
+    subtitle_langs = []
+    for code in raw_langs:
+        code = str(code).strip()
+        if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$', code):
+            raise web.HTTPBadRequest(reason=f'Invalid subtitle language code: {code!r}')
+        subtitle_langs.append(code)
+
     ytdl_options_presets = _parse_ytdl_options_presets(post)
     ytdl_options_overrides = _parse_ytdl_options_overrides(
         ytdl_options_overrides,
@@ -588,6 +598,7 @@ def parse_download_options(post: dict) -> dict:
         'custom_name_prefix': custom_name_prefix,
         'playlist_item_limit': playlist_item_limit,
         'auto_start': auto_start,
+        'subtitle_langs': subtitle_langs,
         'ytdl_options_presets': ytdl_options_presets,
         'ytdl_options_overrides': ytdl_options_overrides,
     }
@@ -624,6 +635,7 @@ async def add(request):
         chapter_template=config.OUTPUT_TEMPLATE_CHAPTER,
         subtitle_language='en',
         subtitle_mode='prefer_manual',
+        subtitle_langs=o['subtitle_langs'],
         ytdl_options_presets=o['ytdl_options_presets'],
         ytdl_options_overrides=o['ytdl_options_overrides'],
         clip_start=None,

@@ -682,7 +682,8 @@ def test_download_info_to_public_dict_excludes_server_only_fields():
     info.subtitle_files = [{"filename": "a.srt", "size": 10}]
     public = info.to_public_dict()
     assert "entry" not in public
-    assert "subtitle_files" not in public
+    # subtitle_files is now exposed to the frontend so users can download them
+    assert public["subtitle_files"] == [{"filename": "a.srt", "size": 10}]
     # Client-facing fields are still present.
     assert public["url"] == "https://example.com/watch?v=1"
     assert public["title"] == "Test Video"

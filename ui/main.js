@@ -19,6 +19,8 @@
  * @property {number|null}    timestamp     - nanoseconds since epoch
  * @property {string|null}    error
  * @property {Array<{filename:string,size:number}>} [chapter_files]
+ * @property {Array<{filename:string,size:number}>} [subtitle_files]
+ * @property {string[]}       [subtitle_langs]
  */
 
 /**
@@ -69,6 +71,10 @@ function app() {
 
     // ── theme ─────────────────────────────────────────────────────────────────
     theme: /** @type {Theme} */ (localStorage.getItem('metube_theme') || 'auto'),
+
+    // ── subtitles ─────────────────────────────────────────────────────────────
+    /** @type {string} comma-separated language codes entered by user */
+    subtitleLangsInput: '',
 
     // ── logs ──────────────────────────────────────────────────────────────────
     /** @type {string|null} id of the download whose log panel is open */
@@ -148,6 +154,8 @@ function app() {
     /** POST /add with current form state. */
     async addDownload() {
       if (!this.url.trim()) return;
+      const { langs, error: langsError } = this._parseSubtitleLangs();
+      if (langsError) { this.error = langsError; return; }
       this.adding = true;
       this.error  = null;
       try {
@@ -164,6 +172,7 @@ function app() {
             custom_name_prefix:   '',
             playlist_item_limit:  0,
             auto_start:           true,
+            subtitle_langs:       langs,
             ytdl_options_presets: this.selectedPresets,
           }),
         });
@@ -214,6 +223,7 @@ function app() {
           custom_name_prefix:   dl.custom_name_prefix || '',
           playlist_item_limit:  dl.playlist_item_limit || 0,
           auto_start:           true,
+          subtitle_langs:       dl.subtitle_langs || [],
           ytdl_options_presets: dl.ytdl_options_presets || [],
         }),
       });
@@ -287,6 +297,23 @@ function app() {
     async deleteCookies() {
       await fetch('delete-cookies', { method: 'POST' });
       await this._refreshCookieStatus();
+    },
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Subtitles
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Parse and validate the subtitle language input.
+     * @returns {{ langs: string[], error: string|null }}
+     */
+    _parseSubtitleLangs() {
+      const raw = this.subtitleLangsInput.trim();
+      if (!raw) return { langs: [], error: null };
+      const langs = raw.split(',').map(s => s.trim()).filter(Boolean);
+      const invalid = langs.filter(l => !/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(l));
+      if (invalid.length) return { langs: [], error: `Invalid subtitle language codes: ${invalid.join(', ')}` };
+      return { langs, error: null };
     },
 
     // ══════════════════════════════════════════════════════════════════════════
