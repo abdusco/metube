@@ -212,7 +212,6 @@ class PersistentQueueTests(unittest.TestCase):
                                     "playlist_item_limit": 0,
                                     "split_by_chapters": False,
                                     "chapter_template": "",
-                                    "subtitle_language": "en",
                                     "subtitle_mode": "prefer_manual",
                                     "status": "pending",
                                     "timestamp": 1,

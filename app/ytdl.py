@@ -200,7 +200,6 @@ class DownloadInfo:
         playlist_item_limit,
         split_by_chapters,
         chapter_template,
-        subtitle_language="en",
         subtitle_mode="prefer_manual",
         subtitle_langs=None,
         ytdl_options_presets=None,
@@ -229,7 +228,6 @@ class DownloadInfo:
         self.playlist_item_limit = playlist_item_limit
         self.split_by_chapters = split_by_chapters
         self.chapter_template = chapter_template
-        self.subtitle_language = subtitle_language
         self.subtitle_mode = subtitle_mode
         self.subtitle_langs = list(subtitle_langs) if subtitle_langs else []
         self.ytdl_options_presets = list(ytdl_options_presets or [])
@@ -300,8 +298,6 @@ class DownloadInfo:
             self.split_by_chapters = False
         if not hasattr(self, "chapter_template"):
             self.chapter_template = ""
-        if not hasattr(self, "subtitle_language"):
-            self.subtitle_language = "en"
         if not hasattr(self, "subtitle_mode"):
             self.subtitle_mode = "prefer_manual"
         if not hasattr(self, "subtitle_langs"):
@@ -347,7 +343,6 @@ _PERSISTED_DOWNLOAD_FIELDS = (
     "playlist_item_limit",
     "split_by_chapters",
     "chapter_template",
-    "subtitle_language",
     "subtitle_mode",
     "subtitle_langs",
     "ytdl_options_presets",
@@ -445,7 +440,6 @@ class Download:
             format,
             quality,
             ytdl_opts,
-            subtitle_language=getattr(info, 'subtitle_language', 'en'),
             subtitle_mode=getattr(info, 'subtitle_mode', 'prefer_manual'),
             subtitle_langs=getattr(info, 'subtitle_langs', []),
         )
@@ -1145,8 +1139,8 @@ class DownloadQueue:
         auto_start,
         split_by_chapters,
         chapter_template,
-        subtitle_language,
         subtitle_mode,
+        subtitle_langs,
         ytdl_options_presets,
         ytdl_options_overrides,
         clip_start,
@@ -1181,8 +1175,8 @@ class DownloadQueue:
                 auto_start,
                 split_by_chapters,
                 chapter_template,
-                subtitle_language,
                 subtitle_mode,
+                subtitle_langs,
                 ytdl_options_presets,
                 ytdl_options_overrides,
                 clip_start,
@@ -1234,8 +1228,8 @@ class DownloadQueue:
                         auto_start,
                         split_by_chapters,
                         chapter_template,
-                        subtitle_language,
                         subtitle_mode,
+                        subtitle_langs,
                         ytdl_options_presets,
                         ytdl_options_overrides,
                         clip_start,
@@ -1269,8 +1263,8 @@ class DownloadQueue:
                     playlist_item_limit=playlist_item_limit,
                     split_by_chapters=split_by_chapters,
                     chapter_template=chapter_template,
-                    subtitle_language=subtitle_language,
                     subtitle_mode=subtitle_mode,
+                    subtitle_langs=subtitle_langs,
                     ytdl_options_presets=ytdl_options_presets,
                     ytdl_options_overrides=ytdl_options_overrides,
                     clip_start=clip_start,
@@ -1295,8 +1289,8 @@ class DownloadQueue:
         auto_start=True,
         split_by_chapters=False,
         chapter_template=None,
-        subtitle_language="en",
         subtitle_mode="prefer_manual",
+        subtitle_langs=None,
         ytdl_options_presets=None,
         ytdl_options_overrides=None,
         clip_start=None,
@@ -1309,7 +1303,7 @@ class DownloadQueue:
         log.info(
             f'adding {url}: {download_type=} {codec=} {format=} {quality=} {already=} {folder=} {custom_name_prefix=} '
             f'{playlist_item_limit=} {auto_start=} {split_by_chapters=} {chapter_template=} '
-            f'{subtitle_language=} {subtitle_mode=} {ytdl_options_presets=} {clip_start=} {clip_end=}'
+            f'{subtitle_mode=} {subtitle_langs=} {ytdl_options_presets=} {clip_start=} {clip_end=}'
         )
         if already is None:
             _add_gen = self._add_generation
@@ -1339,8 +1333,8 @@ class DownloadQueue:
             auto_start,
             split_by_chapters,
             chapter_template,
-            subtitle_language,
             subtitle_mode,
+            subtitle_langs or [],
             ytdl_options_presets,
             ytdl_options_overrides,
             clip_start,
@@ -1362,8 +1356,8 @@ class DownloadQueue:
         auto_start=True,
         split_by_chapters=False,
         chapter_template=None,
-        subtitle_language="en",
         subtitle_mode="prefer_manual",
+        subtitle_langs=None,
         ytdl_options_presets=None,
         ytdl_options_overrides=None,
         clip_start=None,
@@ -1385,8 +1379,8 @@ class DownloadQueue:
             auto_start,
             split_by_chapters,
             chapter_template,
-            subtitle_language,
             subtitle_mode,
+            subtitle_langs or [],
             ytdl_options_presets,
             ytdl_options_overrides,
             clip_start,

@@ -7,7 +7,6 @@ import unittest
 
 from app.dl_formats import (
     _normalize_caption_mode,
-    _normalize_subtitle_language,
     get_format,
     get_opts,
 )
@@ -88,7 +87,7 @@ class DlFormatsTests(unittest.TestCase):
 
     def test_get_opts_captions_manual_only(self):
         opts = get_opts(
-            "captions", "auto", "vtt", "best", {}, subtitle_language="fr", subtitle_mode="manual_only"
+            "captions", "auto", "vtt", "best", {}, subtitle_mode="manual_only", subtitle_langs=["fr"]
         )
         self.assertTrue(opts.get("writesubtitles"))
         self.assertFalse(opts.get("writeautomaticsub"))
@@ -96,7 +95,7 @@ class DlFormatsTests(unittest.TestCase):
 
     def test_get_opts_captions_auto_only(self):
         opts = get_opts(
-            "captions", "auto", "srt", "best", {}, subtitle_language="de", subtitle_mode="auto_only"
+            "captions", "auto", "srt", "best", {}, subtitle_mode="auto_only", subtitle_langs=["de"]
         )
         self.assertFalse(opts.get("writesubtitles"))
         self.assertTrue(opts.get("writeautomaticsub"))
@@ -104,7 +103,7 @@ class DlFormatsTests(unittest.TestCase):
 
     def test_get_opts_captions_prefer_auto(self):
         opts = get_opts(
-            "captions", "auto", "srt", "best", {}, subtitle_language="es", subtitle_mode="prefer_auto"
+            "captions", "auto", "srt", "best", {}, subtitle_mode="prefer_auto", subtitle_langs=["es"]
         )
         self.assertTrue(opts.get("writesubtitles"))
         self.assertTrue(opts.get("writeautomaticsub"))
@@ -112,13 +111,34 @@ class DlFormatsTests(unittest.TestCase):
 
     def test_get_opts_captions_prefer_manual_default_branch(self):
         opts = get_opts(
-            "captions", "auto", "srt", "best", {}, subtitle_language="it", subtitle_mode="prefer_manual"
+            "captions", "auto", "srt", "best", {}, subtitle_mode="prefer_manual", subtitle_langs=["it"]
         )
         self.assertEqual(opts["subtitleslangs"], ["it", "it-orig"])
+
+    def test_get_opts_captions_multi_lang(self):
+        opts = get_opts(
+            "captions", "auto", "srt", "best", {}, subtitle_mode="prefer_manual", subtitle_langs=["en", "de"]
+        )
+        self.assertEqual(opts["subtitleslangs"], ["en", "en-orig", "de", "de-orig"])
+
+    def test_get_opts_captions_empty_langs_defaults_en(self):
+        opts = get_opts("captions", "auto", "srt", "best", {}, subtitle_mode="manual_only")
+        self.assertEqual(opts["subtitleslangs"], ["en"])
 
     def test_get_opts_captions_txt_maps_to_srt_format(self):
         opts = get_opts("captions", "auto", "txt", "best", {})
         self.assertEqual(opts["subtitlesformat"], "srt")
+
+    def test_get_opts_video_subtitle_langs(self):
+        opts = get_opts("video", "auto", "mp4", "best", {}, subtitle_langs=["en", "de"])
+        self.assertTrue(opts.get("writesubtitles"))
+        self.assertTrue(opts.get("writeautomaticsub"))
+        self.assertEqual(opts["subtitleslangs"], ["en", "en-orig", "de", "de-orig"])
+
+    def test_get_opts_video_no_subtitle_langs(self):
+        opts = get_opts("video", "auto", "mp4", "best", {})
+        self.assertNotIn("writesubtitles", opts)
+        self.assertNotIn("subtitleslangs", opts)
 
     def test_get_opts_merges_existing_postprocessors(self):
         opts = get_opts("audio", "auto", "opus", "best", {"postprocessors": [{"key": "SponsorBlock"}]})
@@ -129,10 +149,6 @@ class DlFormatsTests(unittest.TestCase):
     def test_normalize_caption_mode_invalid_defaults(self):
         self.assertEqual(_normalize_caption_mode(""), "prefer_manual")
         self.assertEqual(_normalize_caption_mode("not_a_mode"), "prefer_manual")
-
-    def test_normalize_subtitle_language_empty_defaults_en(self):
-        self.assertEqual(_normalize_subtitle_language(""), "en")
-        self.assertEqual(_normalize_subtitle_language("  "), "en")
 
 
 if __name__ == "__main__":

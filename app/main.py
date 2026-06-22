@@ -633,7 +633,6 @@ async def add(request):
         o['auto_start'],
         split_by_chapters=False,
         chapter_template=config.OUTPUT_TEMPLATE_CHAPTER,
-        subtitle_language='en',
         subtitle_mode='prefer_manual',
         subtitle_langs=o['subtitle_langs'],
         ytdl_options_presets=o['ytdl_options_presets'],
