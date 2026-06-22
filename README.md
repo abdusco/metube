@@ -1,20 +1,20 @@
 # MeTube
 
-![Build Status](https://github.com/alexta69/metube/actions/workflows/main.yml/badge.svg)
-![Docker Pulls](https://img.shields.io/docker/pulls/alexta69/metube.svg)
+![Build Status](https://github.com/abdusco/metube/actions/workflows/main.yml/badge.svg)
 
 MeTube is a self-hosted web UI for `yt-dlp`, for downloading media from YouTube and [dozens of other sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
 Key capabilities:
 * Download videos, audio, captions, and thumbnails from a browser UI.
 * Download playlists and channels, with configurable output and download options.
+* Fetch subtitles alongside video/audio downloads and save them as separate files.
 
 ![screenshot1](https://github.com/alexta69/metube/raw/master/screenshot.gif)
 
 ## 🐳 Run using Docker
 
 ```bash
-docker run -d -p 8081:8081 -v /path/to/downloads:/downloads ghcr.io/alexta69/metube
+docker run -d -p 8081:8081 -v /path/to/downloads:/downloads ghcr.io/abdusco/metube
 ```
 
 ## 🐳 Run using docker-compose
@@ -22,7 +22,7 @@ docker run -d -p 8081:8081 -v /path/to/downloads:/downloads ghcr.io/alexta69/met
 ```yaml
 services:
   metube:
-    image: ghcr.io/alexta69/metube
+    image: ghcr.io/abdusco/metube
     container_name: metube
     restart: unless-stopped
     ports:
@@ -210,6 +210,14 @@ The project's Wiki contains examples of useful configurations contributed by use
 * [YTDL_OPTIONS Cookbook](https://github.com/alexta69/metube/wiki/YTDL_OPTIONS-Cookbook)
 * [OUTPUT_TEMPLATE Cookbook](https://github.com/alexta69/metube/wiki/OUTPUT_TEMPLATE-Cookbook)
 
+## 📝 Downloading subtitles
+
+MeTube can fetch subtitles alongside video and audio downloads. Open **Advanced Options** before starting a download and enter comma-separated BCP-47 language codes in the **Subtitle languages** field (e.g. `en`, `de`, `zh-CN`). Leave the field empty to skip subtitle downloading.
+
+When subtitles are found, both the manually-uploaded and auto-generated variants are requested for each language (e.g. `en` and `en-orig`). The downloaded `.vtt` or `.srt` files appear as separate download links under the completed item, next to the video file.
+
+To embed subtitles directly into the video container instead of downloading them as sidecar files, use the `FFmpegEmbedSubtitle` postprocessor via `YTDL_OPTIONS` or a preset — see [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options).
+
 ## 🍪 Using browser cookies
 
 In case you need to use your browser's cookies with MeTube, for example to download restricted or private videos:
@@ -271,7 +279,7 @@ It's possible to configure MeTube to listen in HTTPS mode. `docker-compose` exam
 ```yaml
 services:
   metube:
-    image: ghcr.io/alexta69/metube
+    image: ghcr.io/abdusco/metube
     container_name: metube
     restart: unless-stopped
     ports:
