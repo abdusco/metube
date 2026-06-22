@@ -103,7 +103,7 @@ class ConfigTests(unittest.TestCase):
                 Config()
 
     def test_invalid_boolean_env_exits(self):
-        with patch.dict(os.environ, _base_env(CUSTOM_DIRS="maybe"), clear=False):
+        with patch.dict(os.environ, _base_env(DELETE_FILE_ON_TRASHCAN="maybe"), clear=False):
             with self.assertRaises(SystemExit):
                 Config()
 

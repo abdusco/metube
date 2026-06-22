@@ -12,9 +12,9 @@ def _ensure_test_env() -> None:
         return
     tmp = tempfile.mkdtemp(prefix="metube-pytest-")
     base = Path(tmp)
-    browser = base / "ui" / "dist" / "metube" / "browser"
-    browser.mkdir(parents=True)
-    (browser / "index.html").write_text("<html><body></body></html>", encoding="utf-8")
+    ui = base / "ui"
+    ui.mkdir(parents=True)
+    (ui / "index.html").write_text("<html><body></body></html>", encoding="utf-8")
     dl = base / "downloads"
     st = base / "state"
     dl.mkdir(parents=True)

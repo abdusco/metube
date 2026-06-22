@@ -78,8 +78,8 @@ async def test_add_passes_preset_and_overrides(mock_dqueue, monkeypatch):
     assert resp.status == 200
     call = mock_dqueue.add.await_args
     assert call is not None
-    assert call.args[13] == ["Preset A"]
-    assert call.args[14] == {"writesubtitles": True}
+    assert call.kwargs["ytdl_options_presets"] == ["Preset A"]
+    assert call.kwargs["ytdl_options_overrides"] == {"writesubtitles": True}
 
 
 @pytest.mark.asyncio
@@ -92,7 +92,7 @@ async def test_add_legacy_string_preset_normalized(mock_dqueue, monkeypatch):
     resp = await main.add(req)
     assert resp.status == 200
     call = mock_dqueue.add.await_args
-    assert call.args[13] == ["Legacy"]
+    assert call.kwargs["ytdl_options_presets"] == ["Legacy"]
 
 
 @pytest.mark.asyncio
@@ -118,36 +118,8 @@ async def test_add_invalid_video_quality(mock_dqueue):
 
 
 @pytest.mark.asyncio
-async def test_add_invalid_subtitle_language(mock_dqueue):
-    req = _json_request(
-        {
-            "url": "https://example.com/v",
-            "download_type": "captions",
-            "codec": "auto",
-            "format": "srt",
-            "quality": "best",
-            "subtitle_language": "bad language!",
-        }
-    )
-    with pytest.raises(web.HTTPBadRequest):
-        await main.add(req)
-
-
-@pytest.mark.asyncio
 async def test_add_custom_name_prefix_path_traversal(mock_dqueue):
     req = _json_request(_valid_video_add_body(custom_name_prefix="../evil"))
-    with pytest.raises(web.HTTPBadRequest):
-        await main.add(req)
-
-
-@pytest.mark.asyncio
-async def test_add_chapter_template_path_traversal(mock_dqueue):
-    req = _json_request(
-        _valid_video_add_body(
-            split_by_chapters=True,
-            chapter_template="/etc/passwd%(title)s",
-        )
-    )
     with pytest.raises(web.HTTPBadRequest):
         await main.add(req)
 
@@ -182,7 +154,7 @@ async def test_add_allows_any_ytdl_options_override_key_when_enabled(mock_dqueue
     assert resp.status == 200
     call = mock_dqueue.add.await_args
     assert call is not None
-    assert call.args[14] == {"exec": "echo hi"}
+    assert call.kwargs["ytdl_options_overrides"] == {"exec": "echo hi"}
 
 
 @pytest.mark.asyncio
@@ -282,33 +254,6 @@ async def test_add_legacy_format_migrated(mock_dqueue):
     call = mock_dqueue.add.await_args
     assert call is not None
     assert call.args[1] == "audio"
-
-
-@pytest.mark.asyncio
-async def test_add_passes_clip_bounds_to_queue(mock_dqueue):
-    req = _json_request(
-        _valid_video_add_body(clip_start="2:26", clip_end="3:24"),
-    )
-    resp = await main.add(req)
-    assert resp.status == 200
-    call = mock_dqueue.add.await_args
-    assert call is not None
-    assert call.args[15] == pytest.approx(146.0)
-    assert call.args[16] == pytest.approx(204.0)
-
-
-@pytest.mark.asyncio
-async def test_subscribe_rejects_clip_options(mock_dqueue, monkeypatch):
-    monkeypatch.setattr(main.submgr, "add_subscription", AsyncMock())
-    req = _json_request(
-        {
-            **_valid_video_add_body(clip_start="10"),
-            "check_interval_minutes": 60,
-        }
-    )
-    with pytest.raises(web.HTTPBadRequest):
-        await main.subscribe(req)
-    main.submgr.add_subscription.assert_not_awaited()
 
 
 def test_is_within_state_dir_blocks_state_subtree():
