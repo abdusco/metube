@@ -37,7 +37,7 @@ RUN case "$TARGETARCH" in \
     esac && \
     DENO_VERSION=$(curl -sf https://dl.deno.land/release-latest.txt | tr -d '[:space:]') && \
     curl -fsSL "https://dl.deno.land/release/${DENO_VERSION}/deno-${DENO_ARCH}.zip" -o /tmp/deno.zip && \
-    unzip -q /tmp/deno.zip deno -d /usr/local/bin/ && \
+    unzip -qo /tmp/deno.zip deno -d /usr/local/bin/ && \
     rm /tmp/deno.zip && \
     chmod +x /usr/local/bin/deno
 
