@@ -5,6 +5,8 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock docker-entrypoint.sh ./
 
+ARG TARGETARCH
+
 # Use sed to strip carriage-return characters from the entrypoint script (in case building on Windows)
 # Install dependencies
 RUN sed -i 's/\r$//g' docker-entrypoint.sh && \
@@ -22,12 +24,22 @@ RUN sed -i 's/\r$//g' docker-entrypoint.sh && \
       build-essential && \
     UV_PROJECT_ENVIRONMENT=/usr/local uv sync --frozen --no-dev --compile-bytecode && \
     uv cache clean && \
-    curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh -s -- -y && \
     apt-get purge -y --auto-remove build-essential && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir /.cache && chmod 777 /.cache
 
-ARG TARGETARCH
+# Install Deno by downloading the binary directly — the official install.sh runs Deno
+# after extraction (for shell-setup), which crashes under QEMU arm64 emulation (SIGILL).
+RUN case "$TARGETARCH" in \
+      amd64) DENO_ARCH="x86_64-unknown-linux-gnu" ;; \
+      arm64) DENO_ARCH="aarch64-unknown-linux-gnu" ;; \
+      *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac && \
+    DENO_VERSION=$(curl -sf https://dl.deno.land/release-latest.txt | tr -d '[:space:]') && \
+    curl -fsSL "https://dl.deno.land/release/${DENO_VERSION}/deno-${DENO_ARCH}.zip" -o /tmp/deno.zip && \
+    unzip -q /tmp/deno.zip deno -d /usr/local/bin/ && \
+    rm /tmp/deno.zip && \
+    chmod +x /usr/local/bin/deno
 
 RUN BGUTIL_TAG="$(curl -Ls -o /dev/null -w '%{url_effective}' https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/latest | sed 's#.*/tag/##')" && \
     case "$TARGETARCH" in \
