@@ -20,7 +20,13 @@ from yt_dlp.utils import STR_FORMAT_RE_TMPL, STR_FORMAT_TYPES
 from dl_formats import get_format, get_opts, AUDIO_FORMATS
 from datetime import datetime
 from state_store import AtomicJsonStore, from_json_compatible, read_legacy_shelf, to_json_compatible
-from subscriptions import _entry_id
+
+
+def _entry_id(entry: dict) -> Optional[str]:
+    eid = entry.get("id")
+    if eid is not None:
+        return str(eid)
+    return entry.get("webpage_url") or entry.get("url")
 
 log = logging.getLogger('ytdl')
 
@@ -490,6 +496,7 @@ class Download:
                         log.warning("SplitChapters finished but no chapter files found in info_dict")
 
             ytdl_params = {
+                **self.ytdl_opts,
                 'quiet': not debug_logging,
                 'verbose': debug_logging,
                 'no_color': True,
@@ -500,7 +507,6 @@ class Download:
                 'ignore_no_formats_error': True,
                 'progress_hooks': [put_status],
                 'postprocessor_hooks': [put_status_postprocessor],
-                **self.ytdl_opts,
             }
 
             # Add chapter splitting options if enabled

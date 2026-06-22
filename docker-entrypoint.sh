@@ -11,11 +11,7 @@ mkdir -p "${DOWNLOAD_DIR}" "${AUDIO_DOWNLOAD_DIR}" "${STATE_DIR}" "${TEMP_DIR}"
 
 do_upgrade() {
     echo "Upgrading yt-dlp to nightly channel..."
-    if ! python3 -m pip --version >/dev/null 2>&1; then
-        echo "pip not found; attempting ensurepip"
-        python3 -m ensurepip --upgrade >/dev/null 2>&1 || true
-    fi
-    if ! python3 -m pip install -U --pre "yt-dlp[default,curl-cffi,deno]"; then
+    if ! UV_SYSTEM_PYTHON=1 uv pip install -U --pre "yt-dlp[default,curl-cffi,deno]"; then
         echo "Warning: yt-dlp nightly upgrade failed; continuing with existing installation"
         return 1
     fi
@@ -66,13 +62,13 @@ if [ `id -u` -eq 0 ] && [ `id -g` -eq 0 ]; then
     echo "Starting BgUtils POT Provider"
     gosu "${PUID}":"${PGID}" bgutil-pot server >/tmp/bgutil-pot.log 2>&1 &
     echo "Running MeTube as user ${PUID}:${PGID}"
-    run_supervised gosu "${PUID}":"${PGID}" python3 app/main.py
+    run_supervised gosu "${PUID}":"${PGID}" uv run python app/main.py
     exit $?
 else
     echo "User set by docker; running MeTube as `id -u`:`id -g`"
     disable_nightly_for_non_root
     echo "Starting BgUtils POT Provider"
     bgutil-pot server >/tmp/bgutil-pot.log 2>&1 &
-    run_supervised python3 app/main.py
+    run_supervised uv run python app/main.py
     exit $?
 fi

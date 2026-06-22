@@ -1,12 +1,5 @@
-FROM node:lts-alpine AS builder
-
-WORKDIR /metube
-COPY ui ./
-RUN corepack enable && corepack prepare pnpm --activate
-RUN CI=true pnpm install && pnpm run build
-
-
 FROM python:3.13-slim
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 WORKDIR /app
 
@@ -27,10 +20,8 @@ RUN sed -i 's/\r$//g' docker-entrypoint.sh && \
       curl \
       tini \
       build-essential && \
-    curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh && \
     UV_PROJECT_ENVIRONMENT=/usr/local uv sync --frozen --no-dev --compile-bytecode && \
     uv cache clean && \
-    rm -f /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/uvw && \
     curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh -s -- -y && \
     apt-get purge -y --auto-remove build-essential && \
     rm -rf /var/lib/apt/lists/* && \
@@ -54,7 +45,7 @@ RUN BGUTIL_TAG="$(curl -Ls -o /dev/null -w '%{url_effective}' https://github.com
     rm /tmp/bgutil-ytdlp-pot-provider-rs.zip
 
 COPY app ./app
-COPY --from=builder /metube/dist/metube ./ui/dist/metube
+COPY ui/ ./ui/
 
 ENV PUID=1000
 ENV PGID=1000

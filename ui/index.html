@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MeTube</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+<body x-data="app()" x-init="init()" :data-noop="$watch('theme', () => _applyTheme())">
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-inner">
+    <div class="logo">MeTube</div>
+
+    <div class="metrics">
+      <div class="metric active">
+        <span x-text="activeCount"></span> active
+      </div>
+      <div class="metric">
+        <span x-text="queuedCount"></span> queued
+      </div>
+      <div class="metric success">
+        <span x-text="doneCount"></span> done
+      </div>
+      <div class="metric failed">
+        <span x-text="failedCount"></span> failed
+      </div>
+    </div>
+
+    <div class="theme-btn" role="group" aria-label="Theme">
+      <span :class="{ active: theme === 'light' }" @click="setTheme('light')" title="Light">☀</span>
+      <span :class="{ active: theme === 'auto' }"  @click="setTheme('auto')"  title="Auto">⬤</span>
+      <span :class="{ active: theme === 'dark' }"  @click="setTheme('dark')"  title="Dark">☾</span>
+    </div>
+  </div>
+</header>
+
+<!-- ── Main ────────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- ── Add download ──────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-title">Add download</div>
+
+    <div x-show="error" class="error-banner" x-text="error"></div>
+
+    <div class="add-row">
+      <input
+        type="url"
+        placeholder="URL"
+        x-model="url"
+        @keydown.enter="addDownload()"
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <button class="btn btn-primary" @click="addDownload()" :disabled="adding || !url.trim()">
+        <span x-show="adding" class="spinner"></span>
+        <span x-text="adding ? 'Adding…' : 'Add'"></span>
+      </button>
+    </div>
+
+    <div class="add-options">
+      <!-- Type -->
+      <div class="field">
+        <label>Type</label>
+        <select x-model="downloadType" @change="onTypeChange()">
+          <option value="video">Video</option>
+          <option value="audio">Audio</option>
+        </select>
+      </div>
+
+      <!-- Codec (video only) -->
+      <div class="field" x-show="downloadType === 'video'">
+        <label>Codec</label>
+        <select x-model="codec">
+          <option value="auto">Auto</option>
+          <option value="h264">H.264</option>
+          <option value="h265">H.265</option>
+          <option value="av1">AV1</option>
+          <option value="vp9">VP9</option>
+        </select>
+      </div>
+
+      <!-- Format -->
+      <div class="field">
+        <label>Format</label>
+        <select x-model="format">
+          <template x-for="opt in formatOptions" :key="opt.v">
+            <option :value="opt.v" x-text="opt.l"></option>
+          </template>
+        </select>
+      </div>
+
+      <!-- Quality -->
+      <div class="field">
+        <label>Quality</label>
+        <select x-model="quality">
+          <template x-for="opt in qualityOptions" :key="opt.v">
+            <option :value="opt.v" x-text="opt.l"></option>
+          </template>
+        </select>
+      </div>
+
+      <!-- Presets (only shown when presets exist) -->
+      <div class="field" x-show="presets.length > 0" style="grid-column: 1 / -1">
+        <label>yt-dlp presets</label>
+        <select multiple x-model="selectedPresets" style="min-height:72px">
+          <template x-for="p in presets" :key="p">
+            <option :value="p" x-text="p"></option>
+          </template>
+        </select>
+      </div>
+    </div>
+
+    <details class="advanced">
+      <summary>Advanced</summary>
+
+      <div class="cookie-tabs">
+        <button class="tab-btn" :class="{ active: cookieTab === 'file' }" @click="cookieTab = 'file'">Upload file</button>
+        <button class="tab-btn" :class="{ active: cookieTab === 'paste' }" @click="cookieTab = 'paste'">Paste text</button>
+      </div>
+
+      <!-- File upload -->
+      <div x-show="cookieTab === 'file'">
+        <label class="file-label" for="cookie-file">
+          <span x-show="cookieUploading" class="spinner"></span>
+          <span x-show="!cookieUploading">📎</span>
+          <span x-text="cookieUploading ? 'Uploading…' : 'Choose cookies.txt'"></span>
+        </label>
+        <input id="cookie-file" type="file" accept=".txt" @change="uploadCookieFile($event)" :disabled="cookieUploading">
+      </div>
+
+      <!-- Paste text -->
+      <div x-show="cookieTab === 'paste'">
+        <textarea
+          x-model="cookieText"
+          placeholder="Paste Netscape cookies.txt content here…"
+          rows="5"
+        ></textarea>
+      </div>
+
+      <div class="cookie-actions">
+        <button
+          x-show="cookieTab === 'paste'"
+          class="btn btn-primary btn-sm"
+          @click="uploadCookieText()"
+          :disabled="cookieUploading || !cookieText.trim()"
+        >
+          <span x-show="cookieUploading" class="spinner"></span>
+          Save cookies
+        </button>
+
+        <button
+          x-show="hasCookies"
+          class="btn btn-danger btn-sm"
+          @click="deleteCookies()"
+        >
+          Delete cookies
+        </button>
+
+        <div class="cookie-status" :class="{ active: hasCookies }">
+          <div class="dot"></div>
+          <span x-text="hasCookies ? 'Cookies active' : 'No cookies'"></span>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- ── Downloading ───────────────────────────────────────────────────── -->
+  <template x-if="queue.length > 0">
+    <div>
+      <div class="section-heading">Downloading</div>
+      <div class="dl-list">
+        <template x-for="dl in queue" :key="dl.id">
+          <div class="dl-item">
+            <div class="dl-header">
+              <div class="dl-title">
+                <a :href="dl.url" target="_blank" rel="noopener" x-text="dl.title || dl.url"></a>
+              </div>
+              <div class="dl-actions">
+                <button class="btn-icon danger" @click="deleteDownload(dl.id, 'queue')" title="Remove">✕</button>
+              </div>
+            </div>
+
+            <div class="progress-wrap">
+              <div
+                class="progress-bar"
+                :class="dl.status"
+                :style="`width: ${dl.status === 'downloading' ? (dl.percent || 0) : 100}%`"
+              ></div>
+            </div>
+
+            <div class="dl-meta">
+              <span x-show="dl.status === 'downloading'" x-text="`${(dl.percent || 0).toFixed(1)}%`"></span>
+              <span x-show="dl.speed"   x-text="formatSpeed(dl.speed)"></span>
+              <span x-show="dl.eta"     x-text="`ETA ${formatEta(dl.eta)}`"></span>
+              <span x-show="dl.status !== 'downloading'" x-text="dl.status"></span>
+              <span x-text="badge(dl)" style="margin-left:auto; opacity:.7"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </template>
+
+  <!-- ── Completed ─────────────────────────────────────────────────────── -->
+  <template x-if="done.length > 0">
+    <div>
+      <div class="section-heading">Completed</div>
+      <div class="dl-list">
+        <template x-for="dl in done" :key="dl.id">
+          <div class="dl-item">
+            <div class="dl-header">
+              <div class="dl-title">
+                <span
+                  :class="dl.status === 'finished' ? 'badge badge-finished' : 'badge badge-error'"
+                  x-text="dl.status === 'finished' ? '✓' : '✕'"
+                  style="margin-right:6px"
+                ></span>
+                <a
+                  :href="dl.status === 'finished' ? downloadUrl(dl) : dl.url"
+                  :target="dl.status === 'finished' ? '_blank' : '_blank'"
+                  rel="noopener"
+                  x-text="dl.title || dl.url"
+                ></a>
+              </div>
+              <div class="dl-actions">
+                <a
+                  x-show="dl.status === 'finished' && dl.filename"
+                  :href="downloadUrl(dl)"
+                  class="btn-icon"
+                  :download="dl.filename"
+                  title="Download file"
+                >↓</a>
+                <button
+                  x-show="dl.status === 'error'"
+                  class="btn-icon"
+                  @click="retryDownload(dl)"
+                  title="Retry"
+                >↺</button>
+                <button class="btn-icon danger" @click="deleteDownload(dl.id, 'done')" title="Remove">✕</button>
+              </div>
+            </div>
+
+            <div class="dl-meta">
+              <span x-text="badge(dl)"></span>
+              <span x-show="dl.size" x-text="formatBytes(dl.size)"></span>
+              <span x-show="dl.timestamp" x-text="formatTime(dl.timestamp)"></span>
+              <a :href="dl.url" target="_blank" rel="noopener" class="source-link">source</a>
+            </div>
+
+            <div x-show="dl.status === 'error' && (dl.error || dl.msg)" class="error-detail" x-text="dl.error || dl.msg"></div>
+
+            <!-- Chapter files -->
+            <template x-if="dl.chapter_files && dl.chapter_files.length">
+              <div style="margin-top:8px; padding-left:12px; border-left:2px solid var(--border)">
+                <template x-for="(ch, i) in dl.chapter_files" :key="i">
+                  <div class="dl-meta" style="margin-top:4px">
+                    <a :href="downloadUrl({...dl, filename: ch.filename})" x-text="ch.filename" :download="ch.filename"></a>
+                    <span x-text="formatBytes(ch.size)"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+  </template>
+
+  <!-- ── Empty state ───────────────────────────────────────────────────── -->
+  <template x-if="queue.length === 0 && done.length === 0">
+    <div class="empty">No downloads yet. Paste a URL above to get started.</div>
+  </template>
+
+
+</main>
+
+<script src="main.js"></script>
+</body>
+</html>

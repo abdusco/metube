@@ -11,16 +11,13 @@ from aiohttp.web import GracefulExit
 from aiohttp.log import access_logger
 import ssl
 import socket
-import socketio
 import logging
 import json
-import pathlib
 import re
-from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlunparse
+from urllib.parse import unquote
 from watchfiles import DefaultFilter, Change, awatch
 
 from ytdl import DownloadQueueNotifier, DownloadQueue, Download
-from subscriptions import SubscriptionManager, SubscriptionNotifier, SubscriptionInfo, coerce_optional_bool
 from yt_dlp.version import __version__ as yt_dlp_version
 
 log = logging.getLogger('main')
@@ -57,22 +54,16 @@ class Config:
         'AUDIO_DOWNLOAD_DIR': '%%DOWNLOAD_DIR',
         'TEMP_DIR': '%%DOWNLOAD_DIR',
         'DOWNLOAD_DIRS_INDEXABLE': 'false',
-        'CUSTOM_DIRS': 'true',
-        'CREATE_CUSTOM_DIRS': 'true',
-        'CUSTOM_DIRS_EXCLUDE_REGEX': r'(^|/)[.@].*$',
         'DELETE_FILE_ON_TRASHCAN': 'false',
         'STATE_DIR': '.',
         'URL_PREFIX': '',
         'PUBLIC_HOST_URL': 'download/',
         'PUBLIC_HOST_AUDIO_URL': 'audio_download/',
-        'OUTPUT_TEMPLATE': '%(title)s.%(ext)s',
+        'OUTPUT_TEMPLATE': '%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s',
         'OUTPUT_TEMPLATE_CHAPTER': '%(title)s - %(section_number)02d - %(section_title)s.%(ext)s',
         'OUTPUT_TEMPLATE_PLAYLIST': '%(playlist_title)s/%(title)s.%(ext)s',
         'OUTPUT_TEMPLATE_CHANNEL': '%(channel)s/%(title)s.%(ext)s',
         'DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT' : '0',
-        'SUBSCRIPTION_DEFAULT_CHECK_INTERVAL': '60',
-        'SUBSCRIPTION_SCAN_PLAYLIST_END': '50',
-        'SUBSCRIPTION_MAX_SEEN_IDS': '50000',
         'CLEAR_COMPLETED_AFTER': '0',
         'YTDL_OPTIONS': '{}',
         'YTDL_OPTIONS_FILE': '',
@@ -94,7 +85,7 @@ class Config:
         'YTDL_NIGHTLY_UPDATE_TIME': '',
     }
 
-    _BOOLEAN = ('DOWNLOAD_DIRS_INDEXABLE', 'CUSTOM_DIRS', 'CREATE_CUSTOM_DIRS', 'DELETE_FILE_ON_TRASHCAN', 'HTTPS', 'ENABLE_ACCESSLOG', 'ALLOW_YTDL_OPTIONS_OVERRIDES')
+    _BOOLEAN = ('DOWNLOAD_DIRS_INDEXABLE', 'DELETE_FILE_ON_TRASHCAN', 'HTTPS', 'ENABLE_ACCESSLOG', 'ALLOW_YTDL_OPTIONS_OVERRIDES')
 
     def __init__(self):
         for k, v in self._DEFAULTS.items():
@@ -178,13 +169,9 @@ class Config:
     # Keys sent to the browser. Sensitive or server-only keys (YTDL_OPTIONS,
     # paths, TLS config, etc.) are intentionally excluded.
     _FRONTEND_KEYS = (
-        'CUSTOM_DIRS',
-        'CREATE_CUSTOM_DIRS',
-        'OUTPUT_TEMPLATE_CHAPTER',
         'PUBLIC_HOST_URL',
         'PUBLIC_HOST_AUDIO_URL',
         'DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT',
-        'SUBSCRIPTION_DEFAULT_CHECK_INTERVAL',
         'ALLOW_YTDL_OPTIONS_OVERRIDES',
     )
 
@@ -311,12 +298,7 @@ async def state_dir_guard(request, handler):
 
 app = web.Application(middlewares=[state_dir_guard])
 _cors_origins = [o.strip() for o in config.CORS_ALLOWED_ORIGINS.split(',') if o.strip()] if config.CORS_ALLOWED_ORIGINS else []
-sio = socketio.AsyncServer(cors_allowed_origins=_cors_origins if _cors_origins else [])
-sio.attach(app, socketio_path=config.URL_PREFIX + 'socket.io')
 routes = web.RouteTableDef()
-VALID_SUBTITLE_FORMATS = {'srt', 'txt', 'vtt', 'ttml', 'sbv', 'scc', 'dfxp'}
-VALID_SUBTITLE_MODES = {'auto_only', 'manual_only', 'prefer_manual', 'prefer_auto'}
-SUBTITLE_LANGUAGE_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9-]{0,34}$')
 VALID_DOWNLOAD_TYPES = {'video', 'audio', 'captions', 'thumbnail'}
 VALID_VIDEO_CODECS = {'auto', 'h264', 'h265', 'av1', 'vp9'}
 VALID_VIDEO_FORMATS = {'any', 'mp4', 'ios'}
@@ -339,115 +321,6 @@ def _parse_ytdl_options_overrides(value, *, enabled: bool) -> dict:
         raise web.HTTPBadRequest(reason='ytdl_options_overrides are disabled')
 
     return value
-
-
-_YOUTUBE_T_COMPACT_RE = re.compile(
-    r'^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)(?:s)?)?$',
-    re.IGNORECASE,
-)
-
-
-def _parse_youtube_t_compact(value: str) -> float | None:
-    """Parse YouTube-style ``t`` values: ``885``, ``885s``, ``14m45s``, ``1h2m3s``."""
-    v = value.strip()
-    if not v:
-        return None
-    if re.fullmatch(r'-?\d+(\.\d+)?', v):
-        sec = float(v)
-        return sec if sec >= 0 else None
-    m = _YOUTUBE_T_COMPACT_RE.match(v)
-    if m and any(m.groups()):
-        hours = int(m.group(1) or 0)
-        minutes = int(m.group(2) or 0)
-        seconds = int(m.group(3) or 0)
-        total = hours * 3600 + minutes * 60 + seconds
-        return float(total) if total >= 0 else None
-    return None
-
-
-def _parse_clock_timestamp(s: str) -> float:
-    """Parse ``MM:SS``, ``H:MM:SS``, or single segment as seconds (with optional decimals)."""
-    part = s.strip()
-    if not part:
-        raise ValueError('empty timestamp')
-    segments = part.split(':')
-    if len(segments) > 3:
-        raise ValueError('too many segments')
-    try:
-        nums = [float(x) for x in segments]
-    except ValueError as exc:
-        raise ValueError('invalid number') from exc
-    if any(x < 0 for x in nums):
-        raise ValueError('negative segment')
-    if len(segments) == 1:
-        return nums[0]
-    if len(segments) == 2:
-        return nums[0] * 60 + nums[1]
-    return nums[0] * 3600 + nums[1] * 60 + nums[2]
-
-
-def _parse_clip_timestamp_value(value) -> float:
-    """Coerce a clip boundary from JSON to seconds (non-negative)."""
-    if isinstance(value, bool):
-        raise web.HTTPBadRequest(reason='clip timestamp must be a number or string')
-    if isinstance(value, (int, float)):
-        if value < 0:
-            raise web.HTTPBadRequest(reason='clip timestamp must be non-negative')
-        return float(value)
-    s = str(value).strip()
-    if not s:
-        raise web.HTTPBadRequest(reason='clip timestamp cannot be empty')
-    if ':' in s:
-        try:
-            return _parse_clock_timestamp(s)
-        except ValueError as exc:
-            raise web.HTTPBadRequest(reason='invalid clip timestamp format') from exc
-    compact = _parse_youtube_t_compact(s)
-    if compact is not None:
-        return compact
-    raise web.HTTPBadRequest(reason='invalid clip timestamp format')
-
-
-def _optional_clip_field(raw) -> float | None:
-    if raw is None:
-        return None
-    if isinstance(raw, str) and not raw.strip():
-        return None
-    return _parse_clip_timestamp_value(raw)
-
-
-def _clip_field_provided_in_post(raw) -> bool:
-    if raw is None:
-        return False
-    if isinstance(raw, str) and not raw.strip():
-        return False
-    return True
-
-
-def _extract_t_query_from_url(url: str) -> tuple[str, float | None]:
-    """If ``t=`` is present and parseable, return URL without ``t`` and start seconds."""
-    try:
-        parsed = urlparse(url)
-        params = parse_qs(parsed.query)
-    except Exception:
-        return url, None
-    t_values = params.get('t')
-    if not t_values:
-        return url, None
-    start = _parse_youtube_t_compact(t_values[0])
-    if start is None:
-        return url, None
-    filtered = {k: v for k, v in params.items() if k != 't'}
-    new_query = urlencode(filtered, doseq=True)
-    cleaned = urlunparse((
-        parsed.scheme,
-        parsed.netloc,
-        parsed.path,
-        parsed.params,
-        new_query,
-        parsed.fragment,
-    ))
-    return cleaned, float(start)
 
 
 def _parse_ytdl_options_presets(post: dict) -> list[str]:
@@ -526,23 +399,18 @@ def _migrate_legacy_request(post: dict) -> dict:
 class Notifier(DownloadQueueNotifier):
     async def added(self, dl):
         log.info(f"Notifier: Download added - {dl.title}")
-        await sio.emit('added', serializer.encode(dl))
 
     async def updated(self, dl):
         log.debug(f"Notifier: Download updated - {dl.title}")
-        await sio.emit('updated', serializer.encode(dl))
 
     async def completed(self, dl):
         log.info(f"Notifier: Download completed - {dl.title}")
-        await sio.emit('completed', serializer.encode(dl))
 
     async def canceled(self, id):
         log.info(f"Notifier: Download canceled - {id}")
-        await sio.emit('canceled', serializer.encode(id))
 
     async def cleared(self, id):
         log.info(f"Notifier: Download cleared - {id}")
-        await sio.emit('cleared', serializer.encode(id))
 
 dqueue = DownloadQueue(config, Notifier())
 
@@ -557,40 +425,6 @@ async def _shutdown_download_manager(app):
 
 app.on_startup.append(_download_queue_startup)
 app.on_cleanup.append(_shutdown_download_manager)
-
-
-class MetubeSubscriptionNotifier(SubscriptionNotifier):
-    async def subscription_added(self, sub: SubscriptionInfo):
-        log.info("Subscription added: %s", sub.name)
-        await sio.emit('subscription_added', serializer.encode(sub.to_public_dict()))
-
-    async def subscription_updated(self, sub: SubscriptionInfo):
-        await sio.emit('subscription_updated', serializer.encode(sub.to_public_dict()))
-
-    async def subscription_removed(self, sub_id: str):
-        log.info("Subscription removed: %s", sub_id)
-        await sio.emit('subscription_removed', serializer.encode(sub_id))
-
-    async def subscriptions_all(self, subs: list[SubscriptionInfo]):
-        await sio.emit('subscriptions_all', serializer.encode([s.to_public_dict() for s in subs]))
-
-
-submgr = SubscriptionManager(config, dqueue, MetubeSubscriptionNotifier())
-
-
-async def _shutdown_subscriptions(app):
-    submgr.close()
-
-
-app.on_cleanup.append(_shutdown_subscriptions)
-
-
-async def _subscription_loop_startup(app):
-    """aiohttp on_startup requires awaitable receivers; start_background_loop is sync."""
-    submgr.start_background_loop()
-
-
-app.on_startup.append(_subscription_loop_startup)
 
 
 async def _schedule_nightly_update() -> None:
@@ -652,8 +486,7 @@ async def watch_files():
     async def _watch_files():
         async for changes in awatch(config.YTDL_OPTIONS_FILE, watch_filter=FileOpsFilter()):
             success, msg = config.load_ytdl_options()
-            result = get_options_update_time(success, msg)
-            await sio.emit('ytdl_options_changed', serializer.encode(result))
+            get_options_update_time(success, msg)
 
     log.info(f'Starting Watch File: {config.YTDL_OPTIONS_FILE}')
     asyncio.create_task(_watch_files())
@@ -677,7 +510,7 @@ async def _read_json_request(request: web.Request) -> dict:
 
 
 def parse_download_options(post: dict) -> dict:
-    """Validate add/subscribe body; raise HTTPBadRequest on invalid input."""
+    """Validate add body; raise HTTPBadRequest on invalid input."""
     post = _migrate_legacy_request(dict(post))
     url = post.get('url')
     download_type = post.get('download_type')
@@ -691,10 +524,6 @@ def parse_download_options(post: dict) -> dict:
     custom_name_prefix = post.get('custom_name_prefix')
     playlist_item_limit = post.get('playlist_item_limit')
     auto_start = post.get('auto_start')
-    split_by_chapters = post.get('split_by_chapters')
-    chapter_template = post.get('chapter_template')
-    subtitle_language = post.get('subtitle_language')
-    subtitle_mode = post.get('subtitle_mode')
     ytdl_options_overrides = post.get('ytdl_options_overrides')
 
     if custom_name_prefix is None:
@@ -705,32 +534,16 @@ def parse_download_options(post: dict) -> dict:
         auto_start = True
     if playlist_item_limit is None:
         playlist_item_limit = config.DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT
-    if split_by_chapters is None:
-        split_by_chapters = False
-    if chapter_template is None:
-        chapter_template = config.OUTPUT_TEMPLATE_CHAPTER
-    if subtitle_language is None:
-        subtitle_language = 'en'
-    if subtitle_mode is None:
-        subtitle_mode = 'prefer_manual'
     download_type = str(download_type).strip().lower()
     codec = str(codec or 'auto').strip().lower()
     format = str(format or '').strip().lower()
     quality = str(quality).strip().lower()
-    subtitle_language = str(subtitle_language).strip()
-    subtitle_mode = str(subtitle_mode).strip()
     ytdl_options_presets = _parse_ytdl_options_presets(post)
     ytdl_options_overrides = _parse_ytdl_options_overrides(
         ytdl_options_overrides,
         enabled=config.ALLOW_YTDL_OPTIONS_OVERRIDES,
     )
 
-    if chapter_template and ('..' in chapter_template or chapter_template.startswith('/') or chapter_template.startswith('\\')):
-        raise web.HTTPBadRequest(reason='chapter_template must not contain ".." or start with a path separator')
-    if not SUBTITLE_LANGUAGE_RE.fullmatch(subtitle_language):
-        raise web.HTTPBadRequest(reason='subtitle_language must match pattern [A-Za-z0-9-] and be at most 35 characters')
-    if subtitle_mode not in VALID_SUBTITLE_MODES:
-        raise web.HTTPBadRequest(reason=f'subtitle_mode must be one of {sorted(VALID_SUBTITLE_MODES)}')
     for preset_name in ytdl_options_presets:
         if preset_name not in config.YTDL_OPTIONS_PRESETS:
             raise web.HTTPBadRequest(reason='ytdl_options_presets must only contain configured preset names')
@@ -756,14 +569,7 @@ def parse_download_options(post: dict) -> dict:
         if quality not in allowed_audio_qualities:
             raise web.HTTPBadRequest(reason=f'quality must be one of {sorted(allowed_audio_qualities)} for format {format}')
         codec = 'auto'
-    elif download_type == 'captions':
-        if format not in VALID_SUBTITLE_FORMATS:
-            raise web.HTTPBadRequest(reason=f'format must be one of {sorted(VALID_SUBTITLE_FORMATS)} for captions')
-        quality = 'best'
-        codec = 'auto'
-    elif download_type == 'thumbnail':
-        if format not in VALID_THUMBNAIL_FORMATS:
-            raise web.HTTPBadRequest(reason=f'format must be one of {sorted(VALID_THUMBNAIL_FORMATS)} for thumbnail')
+    elif download_type in ('captions', 'thumbnail'):
         quality = 'best'
         codec = 'auto'
 
@@ -771,39 +577,6 @@ def parse_download_options(post: dict) -> dict:
         playlist_item_limit = int(playlist_item_limit)
     except (TypeError, ValueError) as exc:
         raise web.HTTPBadRequest(reason='playlist_item_limit must be an integer') from exc
-
-    clip_start_raw = post.get('clip_start')
-    clip_end_raw = post.get('clip_end')
-    clip_start: float | None
-    clip_end: float | None
-    if download_type in ('captions', 'thumbnail'):
-        if _clip_field_provided_in_post(clip_start_raw) or _clip_field_provided_in_post(clip_end_raw):
-            raise web.HTTPBadRequest(
-                reason='clip_start and clip_end are only supported for video and audio downloads',
-            )
-        clip_start = None
-        clip_end = None
-    else:
-        cleaned_url, url_t = _extract_t_query_from_url(url)
-        if url_t is not None:
-            url = cleaned_url
-        explicit_start = _optional_clip_field(clip_start_raw)
-        explicit_end = _optional_clip_field(clip_end_raw)
-        explicit_start_provided = _clip_field_provided_in_post(clip_start_raw)
-        explicit_end_provided = _clip_field_provided_in_post(clip_end_raw)
-        if explicit_start_provided:
-            clip_start = explicit_start
-        elif explicit_end_provided:
-            clip_start = 0.0
-        elif url_t is not None:
-            clip_start = url_t
-        else:
-            clip_start = None
-        clip_end = explicit_end
-        if clip_end is not None and clip_start is None:
-            clip_start = 0.0
-        if clip_start is not None and clip_end is not None and clip_end <= clip_start:
-            raise web.HTTPBadRequest(reason='clip_end must be greater than clip_start')
 
     return {
         'url': url,
@@ -815,14 +588,8 @@ def parse_download_options(post: dict) -> dict:
         'custom_name_prefix': custom_name_prefix,
         'playlist_item_limit': playlist_item_limit,
         'auto_start': auto_start,
-        'split_by_chapters': split_by_chapters,
-        'chapter_template': chapter_template,
-        'subtitle_language': subtitle_language,
-        'subtitle_mode': subtitle_mode,
         'ytdl_options_presets': ytdl_options_presets,
         'ytdl_options_overrides': ytdl_options_overrides,
-        'clip_start': clip_start,
-        'clip_end': clip_end,
     }
 
 
@@ -853,14 +620,14 @@ async def add(request):
         o['custom_name_prefix'],
         o['playlist_item_limit'],
         o['auto_start'],
-        o['split_by_chapters'],
-        o['chapter_template'],
-        o['subtitle_language'],
-        o['subtitle_mode'],
-        o['ytdl_options_presets'],
-        o['ytdl_options_overrides'],
-        o['clip_start'],
-        o['clip_end'],
+        split_by_chapters=False,
+        chapter_template=config.OUTPUT_TEMPLATE_CHAPTER,
+        subtitle_language='en',
+        subtitle_mode='prefer_manual',
+        ytdl_options_presets=o['ytdl_options_presets'],
+        ytdl_options_overrides=o['ytdl_options_overrides'],
+        clip_start=None,
+        clip_end=None,
     )
     return web.Response(text=serializer.encode(status))
 
@@ -877,98 +644,6 @@ async def cancel_add(request):
     dqueue.cancel_add()
     return web.Response(text=serializer.encode({'status': 'ok'}), content_type='application/json')
 
-
-@routes.post(config.URL_PREFIX + 'subscribe')
-async def subscribe(request):
-    post = await _read_json_request(request)
-    o = parse_download_options(post)
-    cic = post.get('check_interval_minutes')
-    if cic is None:
-        cic = config.SUBSCRIPTION_DEFAULT_CHECK_INTERVAL
-    try:
-        cic = int(cic)
-    except (TypeError, ValueError) as exc:
-        raise web.HTTPBadRequest(reason='check_interval_minutes must be an integer') from exc
-    if cic < 1:
-        raise web.HTTPBadRequest(reason='check_interval_minutes must be at least 1')
-    if o.get('clip_start') is not None or o.get('clip_end') is not None:
-        raise web.HTTPBadRequest(reason='clip options are not supported for subscriptions')
-
-    try:
-        skip_subscriber_only = coerce_optional_bool(
-            post.get('skip_subscriber_only'),
-            default=False,
-            field_name='skip_subscriber_only',
-        )
-    except ValueError as exc:
-        raise web.HTTPBadRequest(reason=str(exc)) from exc
-
-    result = await submgr.add_subscription(
-        o['url'],
-        check_interval_minutes=cic,
-        download_type=o['download_type'],
-        codec=o['codec'],
-        format=o['format'],
-        quality=o['quality'],
-        folder=o['folder'] or '',
-        custom_name_prefix=o['custom_name_prefix'],
-        auto_start=o['auto_start'],
-        playlist_item_limit=o['playlist_item_limit'],
-        split_by_chapters=o['split_by_chapters'],
-        chapter_template=o['chapter_template'],
-        subtitle_language=o['subtitle_language'],
-        subtitle_mode=o['subtitle_mode'],
-        ytdl_options_presets=o['ytdl_options_presets'],
-        ytdl_options_overrides=o['ytdl_options_overrides'],
-        title_regex=post.get('title_regex'),
-        skip_subscriber_only=skip_subscriber_only,
-    )
-    return web.Response(text=serializer.encode(result))
-
-
-@routes.get(config.URL_PREFIX + 'subscriptions')
-async def subscriptions_list(request):
-    return web.Response(text=serializer.encode([s.to_public_dict() for s in submgr.list_all()]))
-
-
-@routes.post(config.URL_PREFIX + 'subscriptions/update')
-async def subscriptions_update(request):
-    post = await _read_json_request(request)
-    sub_id = post.get('id')
-    if not sub_id:
-        raise web.HTTPBadRequest(reason='missing subscription id')
-    changes = {
-        k: v
-        for k, v in post.items()
-        if k != 'id'
-        and k in ('enabled', 'check_interval_minutes', 'name', 'title_regex', 'skip_subscriber_only')
-    }
-    if not changes:
-        raise web.HTTPBadRequest(reason='no valid fields to update')
-    log.info("Subscription update requested for %s: %s", sub_id, sorted(changes.keys()))
-    result = await submgr.update_subscription(str(sub_id), changes)
-    return web.Response(text=serializer.encode(result))
-
-
-@routes.post(config.URL_PREFIX + 'subscriptions/delete')
-async def subscriptions_delete(request):
-    post = await _read_json_request(request)
-    ids = post.get('ids')
-    if not ids or not isinstance(ids, list):
-        raise web.HTTPBadRequest(reason='missing ids list')
-    result = await submgr.delete_subscriptions([str(i) for i in ids])
-    return web.Response(text=serializer.encode(result))
-
-
-@routes.post(config.URL_PREFIX + 'subscriptions/check')
-async def subscriptions_check(request):
-    post = await _read_json_request(request)
-    ids = post.get('ids')
-    if ids is not None and not isinstance(ids, list):
-        raise web.HTTPBadRequest(reason='ids must be a list')
-    log.info("Subscription check-now requested for ids=%s", ids if ids else "all-enabled")
-    result = await submgr.check_now([str(i) for i in ids] if ids else None)
-    return web.Response(text=serializer.encode(result))
 
 @routes.post(config.URL_PREFIX + 'delete')
 async def delete(request):
@@ -1075,82 +750,18 @@ async def history(request):
     log.info("Sending download history")
     return web.Response(text=serializer.encode(history))
 
-@sio.event
-async def connect(sid, environ):
-    log.info(f"Client connected: {sid}")
-    await sio.emit('all', serializer.encode(dqueue.get()), to=sid)
-    await sio.emit('subscriptions_all', serializer.encode([s.to_public_dict() for s in submgr.list_all()]), to=sid)
-    await sio.emit('configuration', serializer.encode(config.frontend_safe()), to=sid)
-    if config.CUSTOM_DIRS:
-        await sio.emit('custom_dirs', serializer.encode(get_custom_dirs()), to=sid)
-    if config.YTDL_OPTIONS_FILE:
-        await sio.emit('ytdl_options_changed', serializer.encode(get_options_update_time()), to=sid)
+@routes.get(config.URL_PREFIX + 'queue')
+async def queue_state(request):
+    state = dqueue.get()
+    return web.Response(text=serializer.encode(state), content_type='application/json')
 
-def get_custom_dirs():
-    cache_ttl_seconds = 5
-    now = asyncio.get_running_loop().time()
-    cache_key = (
-        config.DOWNLOAD_DIR,
-        config.AUDIO_DOWNLOAD_DIR,
-        config.CUSTOM_DIRS_EXCLUDE_REGEX,
-    )
-    if (
-        hasattr(get_custom_dirs, "_cache_key")
-        and hasattr(get_custom_dirs, "_cache_value")
-        and hasattr(get_custom_dirs, "_cache_time")
-        and get_custom_dirs._cache_key == cache_key
-        and (now - get_custom_dirs._cache_time) < cache_ttl_seconds
-    ):
-        return get_custom_dirs._cache_value
-
-    def recursive_dirs(base):
-        path = pathlib.Path(base)
-
-        # Converts PosixPath object to string, and remove base/ prefix
-        def convert(p):
-            s = str(p)
-            if s.startswith(base):
-                s = s[len(base):]
-
-            if s.startswith('/'):
-                s = s[1:]
-
-            return s
-
-        # Include only directories which do not match the exclude filter
-        def include_dir(d):
-            if len(config.CUSTOM_DIRS_EXCLUDE_REGEX) == 0:
-                return True
-            else:
-                return re.search(config.CUSTOM_DIRS_EXCLUDE_REGEX, d) is None
-
-        # Recursively lists all subdirectories of DOWNLOAD_DIR.
-        # Always include '' (the base directory itself) even when the
-        # directory is empty or does not yet exist.
-        dirs = list(filter(include_dir, map(convert, path.glob('**/'))))
-        if '' not in dirs:
-            dirs.insert(0, '')
-
-        return dirs
-
-    download_dir = recursive_dirs(config.DOWNLOAD_DIR)
-
-    audio_download_dir = download_dir
-    if config.DOWNLOAD_DIR != config.AUDIO_DOWNLOAD_DIR:
-        audio_download_dir = recursive_dirs(config.AUDIO_DOWNLOAD_DIR)
-
-    result = {
-        "download_dir": download_dir,
-        "audio_download_dir": audio_download_dir
-    }
-    get_custom_dirs._cache_key = cache_key
-    get_custom_dirs._cache_time = now
-    get_custom_dirs._cache_value = result
-    return result
+@routes.get(config.URL_PREFIX + 'configuration')
+async def configuration(request):
+    return web.Response(text=serializer.encode(config.frontend_safe()), content_type='application/json')
 
 @routes.get(config.URL_PREFIX)
 async def index(request):
-    response = web.FileResponse(os.path.join(config.BASE_DIR, 'ui/dist/metube/browser/index.html'))
+    response = web.FileResponse(os.path.join(config.BASE_DIR, 'ui/index.html'))
     if 'metube_theme' not in request.cookies:
         response.set_cookie('metube_theme', config.DEFAULT_THEME)
     return response
@@ -1183,12 +794,12 @@ if config.URL_PREFIX != '/':
 
 routes.static(config.URL_PREFIX + 'download/', config.DOWNLOAD_DIR, show_index=config.DOWNLOAD_DIRS_INDEXABLE)
 routes.static(config.URL_PREFIX + 'audio_download/', config.AUDIO_DOWNLOAD_DIR, show_index=config.DOWNLOAD_DIRS_INDEXABLE)
-routes.static(config.URL_PREFIX, os.path.join(config.BASE_DIR, 'ui/dist/metube/browser'))
+routes.static(config.URL_PREFIX, os.path.join(config.BASE_DIR, 'ui'))
 try:
     app.add_routes(routes)
 except ValueError as e:
-    if 'ui/dist/metube/browser' in str(e):
-        raise RuntimeError('Could not find the frontend UI static assets. Please run `node_modules/.bin/ng build` inside the ui folder') from e
+    if 'ui/index.html' in str(e) or 'ui' in str(e):
+        raise RuntimeError('Could not find the frontend UI static assets. Expected ui/index.html') from e
     raise e
 
 # https://github.com/aio-libs/aiohttp/pull/4615 waiting for release
@@ -1198,11 +809,6 @@ async def add_cors(request):
 
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'add', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'cancel-add', add_cors)
-app.router.add_route('OPTIONS', config.URL_PREFIX + 'subscribe', add_cors)
-app.router.add_route('OPTIONS', config.URL_PREFIX + 'subscriptions', add_cors)
-app.router.add_route('OPTIONS', config.URL_PREFIX + 'subscriptions/update', add_cors)
-app.router.add_route('OPTIONS', config.URL_PREFIX + 'subscriptions/delete', add_cors)
-app.router.add_route('OPTIONS', config.URL_PREFIX + 'subscriptions/check', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'upload-cookies', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'delete-cookies', add_cors)
 
