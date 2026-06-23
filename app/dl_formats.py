@@ -1,19 +1,12 @@
 import copy
 
 AUDIO_FORMATS = ("m4a", "mp3", "opus", "wav", "flac")
-CAPTION_MODES = ("auto_only", "manual_only", "prefer_manual", "prefer_auto")
-
 CODEC_FILTER_MAP = {
     'h264': "[vcodec~='^(h264|avc)']",
     'h265': "[vcodec~='^(h265|hevc)']",
     'av1':  "[vcodec~='^av0?1']",
     'vp9':  "[vcodec~='^vp0?9']",
 }
-
-
-def _normalize_caption_mode(mode: str) -> str:
-    mode = (mode or "").strip()
-    return mode if mode in CAPTION_MODES else "prefer_manual"
 
 
 def get_format(download_type: str, codec: str, format: str, quality: str) -> str:
@@ -75,7 +68,6 @@ def get_opts(
     format: str,
     quality: str,
     ytdl_opts: dict,
-    subtitle_mode: str = "prefer_manual",
     subtitle_langs: list = (),
 ) -> dict:
     """
@@ -126,28 +118,12 @@ def get_opts(
         )
 
     if download_type == "captions":
-        mode = _normalize_caption_mode(subtitle_mode)
         langs = list(subtitle_langs) if subtitle_langs else ["en"]
         opts["skip_download"] = True
         opts["subtitlesformat"] = (format or "srt").lower()
-        if mode == "manual_only":
-            opts["writesubtitles"] = True
-            opts["writeautomaticsub"] = False
-            opts["subtitleslangs"] = langs
-        elif mode == "auto_only":
-            opts["writesubtitles"] = False
-            opts["writeautomaticsub"] = True
-            # `-orig` captures common YouTube auto-sub tags. The plain language
-            # fallback keeps behavior useful across other extractors.
-            opts["subtitleslangs"] = [v for l in langs for v in (f"{l}-orig", l)]
-        elif mode == "prefer_auto":
-            opts["writesubtitles"] = True
-            opts["writeautomaticsub"] = True
-            opts["subtitleslangs"] = [v for l in langs for v in (f"{l}-orig", l)]
-        else:
-            opts["writesubtitles"] = True
-            opts["writeautomaticsub"] = True
-            opts["subtitleslangs"] = [v for l in langs for v in (l, f"{l}-orig")]
+        opts["writesubtitles"] = True
+        opts["writeautomaticsub"] = True
+        opts["subtitleslangs"] = [v for l in langs for v in (l, f"{l}-orig")]
 
     if download_type in ("video", "audio") and subtitle_langs:
         opts["writesubtitles"] = True

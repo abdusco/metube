@@ -177,7 +177,6 @@ class PersistentQueueTests(unittest.TestCase):
                                     "folder": "",
                                     "custom_name_prefix": "",
                                     "playlist_item_limit": 0,
-                                    "subtitle_mode": "prefer_manual",
                                     "status": "pending",
                                     "timestamp": 1,
                                     "entry": {

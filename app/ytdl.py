@@ -152,7 +152,6 @@ class DownloadInfo:
         error,
         entry,
         playlist_item_limit,
-        subtitle_mode="prefer_manual",
         subtitle_langs=None,
         ytdl_options_presets=None,
         ytdl_options_overrides=None,
@@ -174,7 +173,6 @@ class DownloadInfo:
         # Strip non-pickleable values (generators, iterators, locks, etc.) for shelve
         self.entry = _sanitize_entry_for_pickle(entry) if entry is not None else None
         self.playlist_item_limit = playlist_item_limit
-        self.subtitle_mode = subtitle_mode
         self.subtitle_langs = list(subtitle_langs) if subtitle_langs else []
         self.ytdl_options_presets = list(ytdl_options_presets or [])
         self.ytdl_options_overrides = dict(ytdl_options_overrides or {})
@@ -204,8 +202,6 @@ class DownloadInfo:
             self.custom_name_prefix = ""
         if not hasattr(self, "playlist_item_limit"):
             self.playlist_item_limit = 0
-        if not hasattr(self, "subtitle_mode"):
-            self.subtitle_mode = "prefer_manual"
         if not hasattr(self, "subtitle_langs"):
             self.subtitle_langs = []
         legacy_preset = self.__dict__.pop("ytdl_options_preset", None)
@@ -237,7 +233,6 @@ _PERSISTED_DOWNLOAD_FIELDS = (
     "folder",
     "custom_name_prefix",
     "playlist_item_limit",
-    "subtitle_mode",
     "subtitle_langs",
     "ytdl_options_presets",
     "ytdl_options_overrides",
@@ -328,7 +323,6 @@ class Download:
             format,
             quality,
             ytdl_opts,
-            subtitle_mode=getattr(info, 'subtitle_mode', 'prefer_manual'),
             subtitle_langs=getattr(info, 'subtitle_langs', []),
         )
         if "impersonate" in self.ytdl_opts:
@@ -776,7 +770,6 @@ class DownloadQueue:
         custom_name_prefix,
         playlist_item_limit,
         auto_start,
-        subtitle_mode,
         subtitle_langs,
         ytdl_options_presets,
         ytdl_options_overrides,
@@ -802,7 +795,6 @@ class DownloadQueue:
                 custom_name_prefix,
                 playlist_item_limit,
                 auto_start,
-                subtitle_mode,
                 subtitle_langs,
                 ytdl_options_presets,
                 ytdl_options_overrides,
@@ -851,7 +843,6 @@ class DownloadQueue:
                         custom_name_prefix,
                         playlist_item_limit,
                         auto_start,
-                        subtitle_mode,
                         subtitle_langs,
                         ytdl_options_presets,
                         ytdl_options_overrides,
@@ -882,7 +873,6 @@ class DownloadQueue:
                     error=error,
                     entry=entry,
                     playlist_item_limit=playlist_item_limit,
-                    subtitle_mode=subtitle_mode,
                     subtitle_langs=subtitle_langs,
                     ytdl_options_presets=ytdl_options_presets,
                     ytdl_options_overrides=ytdl_options_overrides,
@@ -902,7 +892,6 @@ class DownloadQueue:
         custom_name_prefix,
         playlist_item_limit,
         auto_start=True,
-        subtitle_mode="prefer_manual",
         subtitle_langs=None,
         ytdl_options_presets=None,
         ytdl_options_overrides=None,
@@ -913,7 +902,7 @@ class DownloadQueue:
             ytdl_options_presets = []
         log.info(
             f'adding {url}: {download_type=} {codec=} {format=} {quality=} {already=} {folder=} {custom_name_prefix=} '
-            f'{playlist_item_limit=} {auto_start=} {subtitle_mode=} {subtitle_langs=} {ytdl_options_presets=}'
+            f'{playlist_item_limit=} {auto_start=} {subtitle_langs=} {ytdl_options_presets=}'
         )
         if already is None:
             _add_gen = self._add_generation
@@ -941,7 +930,6 @@ class DownloadQueue:
             custom_name_prefix,
             playlist_item_limit,
             auto_start,
-            subtitle_mode,
             subtitle_langs or [],
             ytdl_options_presets,
             ytdl_options_overrides,
@@ -960,7 +948,6 @@ class DownloadQueue:
         custom_name_prefix,
         playlist_item_limit,
         auto_start=True,
-        subtitle_mode="prefer_manual",
         subtitle_langs=None,
         ytdl_options_presets=None,
         ytdl_options_overrides=None,
@@ -979,7 +966,6 @@ class DownloadQueue:
             custom_name_prefix,
             playlist_item_limit,
             auto_start,
-            subtitle_mode,
             subtitle_langs or [],
             ytdl_options_presets,
             ytdl_options_overrides,

@@ -520,7 +520,6 @@ async def add(request):
         o['custom_name_prefix'],
         o['playlist_item_limit'],
         o['auto_start'],
-        subtitle_mode='prefer_manual',
         subtitle_langs=o['subtitle_langs'],
         ytdl_options_presets=o['ytdl_options_presets'],
         ytdl_options_overrides=o['ytdl_options_overrides'],
