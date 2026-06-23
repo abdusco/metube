@@ -50,8 +50,8 @@ if not logging.getLogger().hasHandlers():
 class Config:
     _DEFAULTS = {
         'DOWNLOAD_DIR': '.',
-        'AUDIO_DOWNLOAD_DIR': '%%DOWNLOAD_DIR',
-        'TEMP_DIR': '%%DOWNLOAD_DIR',
+        'AUDIO_DOWNLOAD_DIR': '',
+        'TEMP_DIR': '',
         'DOWNLOAD_DIRS_INDEXABLE': 'false',
         'DELETE_FILE_ON_TRASHCAN': 'false',
         'STATE_DIR': '.',
@@ -88,9 +88,12 @@ class Config:
         for k, v in self._DEFAULTS.items():
             setattr(self, k, os.environ.get(k, v))
 
+        if not self.AUDIO_DOWNLOAD_DIR:
+            self.AUDIO_DOWNLOAD_DIR = self.DOWNLOAD_DIR
+        if not self.TEMP_DIR:
+            self.TEMP_DIR = self.DOWNLOAD_DIR
+
         for k, v in self.__dict__.items():
-            if isinstance(v, str) and v.startswith('%%'):
-                setattr(self, k, getattr(self, v[2:]))
             if k in self._BOOLEAN:
                 if v not in ('true', 'false', 'True', 'False', 'on', 'off', '1', '0'):
                     log.error(f'Environment variable "{k}" is set to a non-boolean value "{v}"')
