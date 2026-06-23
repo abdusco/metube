@@ -8,6 +8,7 @@ import os
 import tempfile
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional
 
 log = logging.getLogger("state_store")
@@ -46,15 +47,13 @@ def from_json_compatible(value: Any) -> Any:
 
 
 class AtomicJsonStore:
-    def __init__(self, path: str, *, kind: str, schema_version: int = STATE_SCHEMA_VERSION):
-        self.path = path
+    def __init__(self, path: str | Path, *, kind: str, schema_version: int = STATE_SCHEMA_VERSION):
+        self.path = Path(path)
         self.kind = kind
         self.schema_version = schema_version
 
     def _ensure_parent(self) -> None:
-        parent = os.path.dirname(self.path)
-        if parent and not os.path.isdir(parent):
-            os.makedirs(parent, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def _build_payload(self, data: dict[str, Any]) -> dict[str, Any]:
         payload = {
@@ -65,10 +64,10 @@ class AtomicJsonStore:
         return payload
 
     def load(self) -> Optional[dict[str, Any]]:
-        if not os.path.exists(self.path):
+        if not self.path.exists():
             return None
         try:
-            with open(self.path, encoding="utf-8") as f:
+            with self.path.open(encoding="utf-8") as f:
                 payload = json.load(f)
             if not isinstance(payload, dict):
                 raise ValueError("State file must contain a JSON object")
@@ -84,9 +83,9 @@ class AtomicJsonStore:
     def save(self, data: dict[str, Any]) -> None:
         self._ensure_parent()
         payload = self._build_payload(data)
-        parent = os.path.dirname(self.path) or "."
+        parent = self.path.parent
         fd, tmp_path = tempfile.mkstemp(
-            prefix=f".{os.path.basename(self.path)}.",
+            prefix=f".{self.path.name}.",
             suffix=".tmp",
             dir=parent,
             text=True,
@@ -107,10 +106,10 @@ class AtomicJsonStore:
             raise
 
     def quarantine_invalid_file(self, exc: Exception) -> None:
-        if not os.path.exists(self.path):
+        if not self.path.exists():
             return
         ts = time.strftime("%Y%m%d%H%M%S")
-        backup_path = f"{self.path}.invalid.{ts}"
+        backup_path = self.path.with_name(self.path.name + f".invalid.{ts}")
         try:
             os.replace(self.path, backup_path)
             log.warning(
@@ -128,7 +127,7 @@ class AtomicJsonStore:
             )
 
     @staticmethod
-    def _fsync_directory(path: str) -> None:
+    def _fsync_directory(path: str | Path) -> None:
         try:
             flags = os.O_RDONLY
             if hasattr(os, "O_DIRECTORY"):

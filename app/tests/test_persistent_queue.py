@@ -8,6 +8,7 @@ import sys
 import tempfile
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 fake_yt_dlp = types.ModuleType("yt_dlp")
@@ -217,7 +218,7 @@ class PersistentQueueTests(unittest.TestCase):
             orig_save = __import__("state_store").AtomicJsonStore.save
 
             def bad_save(store, data):
-                if store.path == path + ".json":
+                if store.path == Path(path + ".json"):
                     raise OSError("simulated shelf failure")
                 return orig_save(store, data)
 
@@ -239,7 +240,7 @@ class PersistentQueueTests(unittest.TestCase):
             orig_save = __import__("state_store").AtomicJsonStore.save
 
             def bad_save(store, data):
-                if store.path == path + ".json":
+                if store.path == Path(path + ".json"):
                     raise OSError("simulated shelf failure")
                 return orig_save(store, data)
 

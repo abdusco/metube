@@ -1,11 +1,11 @@
 import os
-import shutil
 import yt_dlp
 import collections
 import collections.abc
 import copy
 import pickle
 from collections import OrderedDict
+from pathlib import Path
 import time
 import asyncio
 import multiprocessing
@@ -356,7 +356,7 @@ class Download:
                     filepath = d['info_dict']['filepath']
                     if '__finaldir' in d['info_dict']:
                         finaldir = d['info_dict']['__finaldir']
-                        filename = os.path.join(finaldir, os.path.basename(filepath))
+                        filename = str(Path(finaldir) / Path(filepath).name)
                     else:
                         filename = filepath
                     self.status_queue.put({'status': 'finished', 'filename': filename})
@@ -469,12 +469,13 @@ class Download:
                     if not rel_name.lower().endswith(('.vtt', '.srt', '.sbv', '.scc', '.ttml', '.dfxp')):
                         continue
                 self.info.filename = rel_name
-                self.info.size = os.path.getsize(fileName) if os.path.exists(fileName) else None
+                _fn = Path(fileName)
+                self.info.size = _fn.stat().st_size if _fn.exists() else None
                 if getattr(self.info, 'download_type', '') == 'thumbnail':
                     # The thumbnail convertor always emits a .jpg, but yt-dlp may
                     # report the pre-conversion media/thumbnail extension
                     # (.webm/.mp4/.png/.webp/...). Normalise to .jpg regardless.
-                    self.info.filename = os.path.splitext(self.info.filename)[0] + '.jpg'
+                    self.info.filename = str(Path(self.info.filename).with_suffix('.jpg'))
 
             log.debug(f"Update status for {self.info.title}: {status}")
             if 'subtitle_file' in status:
@@ -482,7 +483,8 @@ class Download:
                 if not subtitle_file:
                     continue
                 rel_path = os.path.relpath(subtitle_file, self.download_dir)
-                file_size = os.path.getsize(subtitle_file) if os.path.exists(subtitle_file) else None
+                _sf = Path(subtitle_file)
+                file_size = _sf.stat().st_size if _sf.exists() else None
                 existing = next((sf for sf in self.info.subtitle_files if sf['filename'] == rel_path), None)
                 if not existing:
                     self.info.subtitle_files.append({'filename': rel_path, 'size': file_size})
@@ -506,10 +508,9 @@ class Download:
 class PersistentQueue:
     def __init__(self, name, path):
         self.identifier = name
-        pdir = os.path.dirname(path)
-        if pdir and not os.path.isdir(pdir):
-            os.makedirs(pdir, exist_ok=True)
-        self.path = f"{path}.json"
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.path = str(path.with_suffix('.json'))
         self.store = AtomicJsonStore(self.path, kind=f"persistent_queue:{name}")
         self.dict = OrderedDict()
 
@@ -607,9 +608,10 @@ class DownloadQueue:
     def __init__(self, config, notifier):
         self.config = config
         self.notifier = notifier
-        self.queue = PersistentQueue("queue", self.config.STATE_DIR + '/queue')
-        self.done = PersistentQueue("completed", self.config.STATE_DIR + '/completed')
-        self.pending = PersistentQueue("pending", self.config.STATE_DIR + '/pending')
+        _state = Path(self.config.STATE_DIR)
+        self.queue = PersistentQueue("queue", _state / 'queue')
+        self.done = PersistentQueue("completed", _state / 'completed')
+        self.pending = PersistentQueue("pending", _state / 'pending')
         self.active_downloads = set()
         self.semaphore = asyncio.Semaphore(int(self.config.MAX_CONCURRENT_DOWNLOADS))
         self.done.load()
@@ -646,9 +648,9 @@ class DownloadQueue:
 
     def _post_download_cleanup(self, download):
         if download.info.status != 'finished':
-            if download.tmpfilename and os.path.isfile(download.tmpfilename):
+            if download.tmpfilename and Path(download.tmpfilename).is_file():
                 try:
-                    os.remove(download.tmpfilename)
+                    Path(download.tmpfilename).unlink()
                 except OSError:
                     pass
             download.info.status = 'error'
@@ -704,20 +706,12 @@ class DownloadQueue:
     def __calc_download_path(self, download_type, folder):
         base_directory = self.config.AUDIO_DOWNLOAD_DIR if download_type == 'audio' else self.config.DOWNLOAD_DIR
         if folder:
-            dldirectory = os.path.realpath(os.path.join(base_directory, folder))
-            real_base_directory = os.path.realpath(base_directory)
-            # Use commonpath rather than startswith so that a sibling directory
-            # sharing a name prefix (e.g. base "/downloads" vs "/downloads-secret")
-            # cannot be reached via "../downloads-secret".
-            try:
-                inside_base = os.path.commonpath([real_base_directory, dldirectory]) == real_base_directory
-            except ValueError:
-                # Raised when paths are on different drives (Windows) or mix
-                # absolute/relative; treat as outside the base directory.
-                inside_base = False
-            if not inside_base:
-                return None, {'status': 'error', 'msg': f'Folder "{folder}" must resolve inside the base download directory "{real_base_directory}"'}
-            os.makedirs(dldirectory, exist_ok=True)
+            real_base = Path(base_directory).resolve()
+            dldirectory = (Path(base_directory) / folder).resolve()
+            if not dldirectory.is_relative_to(real_base):
+                return None, {'status': 'error', 'msg': f'Folder "{folder}" must resolve inside the base download directory "{real_base}"'}
+            dldirectory.mkdir(parents=True, exist_ok=True)
+            return str(dldirectory), None
         else:
             dldirectory = base_directory
         return dldirectory, None
@@ -1020,7 +1014,7 @@ class DownloadQueue:
                             rel_names.append(extra['filename'])
                     for rel_name in rel_names:
                         try:
-                            os.remove(os.path.join(dldirectory, rel_name))
+                            (Path(dldirectory) / rel_name).unlink()
                         except FileNotFoundError:
                             pass
                         except OSError as e:

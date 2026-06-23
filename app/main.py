@@ -194,12 +194,12 @@ class Config:
             return (True, '')
 
         log.info(f'Loading yt-dlp custom options from "{self.YTDL_OPTIONS_FILE}"')
-        if not os.path.exists(self.YTDL_OPTIONS_FILE):
+        if not Path(self.YTDL_OPTIONS_FILE).exists():
             msg = f'File "{self.YTDL_OPTIONS_FILE}" not found'
             log.error(msg)
             return (False, msg)
         try:
-            with open(self.YTDL_OPTIONS_FILE) as json_data:
+            with Path(self.YTDL_OPTIONS_FILE).open() as json_data:
                 opts = json.load(json_data)
             assert isinstance(opts, dict)
         except (json.decoder.JSONDecodeError, AssertionError):
@@ -252,11 +252,11 @@ class ObjectSerializer(json.JSONEncoder):
 
 serializer = ObjectSerializer()
 
-_STATE_DIR_REAL = os.path.realpath(config.STATE_DIR)
+_STATE_DIR_REAL = Path(config.STATE_DIR).resolve()
 
 
-def _is_within_state_dir(real_target: str) -> bool:
-    return real_target == _STATE_DIR_REAL or real_target.startswith(_STATE_DIR_REAL + os.sep)
+def _is_within_state_dir(target: str | Path) -> bool:
+    return Path(target).is_relative_to(_STATE_DIR_REAL)
 
 
 @web.middleware
@@ -267,7 +267,7 @@ async def state_dir_guard(request, handler):
     ):
         if request.path.startswith(prefix):
             rel = unquote(request.path[len(prefix):])
-            target = os.path.realpath(os.path.join(base, rel))
+            target = (Path(base) / rel).resolve()
             if _is_within_state_dir(target):
                 raise web.HTTPNotFound()
             break
@@ -541,7 +541,7 @@ async def start(request):
     return web.Response(text=serializer.encode(status))
 
 
-COOKIES_PATH = os.path.join(config.STATE_DIR, 'cookies.txt')
+COOKIES_PATH = Path(config.STATE_DIR) / 'cookies.txt'
 
 @routes.post(config.URL_PREFIX + 'upload-cookies')
 async def upload_cookies(request):
@@ -562,25 +562,24 @@ async def upload_cookies(request):
             return web.Response(status=400, text=serializer.encode({'status': 'error', 'msg': 'Cookie file too large (max 1MB)'}))
         content.extend(chunk)
 
-    tmp_cookie_path = f"{COOKIES_PATH}.tmp"
-    with open(tmp_cookie_path, 'wb') as f:
-        f.write(content)
+    tmp_cookie_path = COOKIES_PATH.with_name(COOKIES_PATH.name + '.tmp')
+    tmp_cookie_path.write_bytes(bytes(content))
     # Cookies are sensitive auth material; restrict to owner read/write only
     # (the container's default umask would otherwise leave them group/world readable).
     try:
-        os.chmod(tmp_cookie_path, 0o600)
+        tmp_cookie_path.chmod(0o600)
     except OSError as exc:
         log.warning(f'Could not restrict permissions on cookies file: {exc}')
-    os.replace(tmp_cookie_path, COOKIES_PATH)
-    config.set_runtime_override('cookiefile', COOKIES_PATH)
+    tmp_cookie_path.replace(COOKIES_PATH)
+    config.set_runtime_override('cookiefile', str(COOKIES_PATH))
     log.info(f'Cookies file uploaded ({size} bytes)')
     return web.Response(text=serializer.encode({'status': 'ok', 'msg': f'Cookies uploaded ({size} bytes)'}))
 
 @routes.post(config.URL_PREFIX + 'delete-cookies')
 async def delete_cookies(request):
-    has_uploaded_cookies = os.path.exists(COOKIES_PATH)
+    has_uploaded_cookies = COOKIES_PATH.exists()
     configured_cookiefile = config.YTDL_OPTIONS.get('cookiefile')
-    has_manual_cookiefile = isinstance(configured_cookiefile, str) and configured_cookiefile and configured_cookiefile != COOKIES_PATH
+    has_manual_cookiefile = isinstance(configured_cookiefile, str) and configured_cookiefile and configured_cookiefile != str(COOKIES_PATH)
 
     if not has_uploaded_cookies:
         if has_manual_cookiefile:
@@ -593,7 +592,7 @@ async def delete_cookies(request):
             )
         return web.Response(status=400, text=serializer.encode({'status': 'error', 'msg': 'No uploaded cookies to delete'}))
 
-    os.remove(COOKIES_PATH)
+    COOKIES_PATH.unlink()
     config.remove_runtime_override('cookiefile')
     success, msg = config.load_ytdl_options()
     if not success:
@@ -606,8 +605,8 @@ async def delete_cookies(request):
 @routes.get(config.URL_PREFIX + 'cookie-status')
 async def cookie_status(request):
     configured_cookiefile = config.YTDL_OPTIONS.get('cookiefile')
-    has_configured_cookies = isinstance(configured_cookiefile, str) and os.path.exists(configured_cookiefile)
-    has_uploaded_cookies = os.path.exists(COOKIES_PATH)
+    has_configured_cookies = isinstance(configured_cookiefile, str) and Path(configured_cookiefile).exists()
+    has_uploaded_cookies = COOKIES_PATH.exists()
     exists = has_uploaded_cookies or has_configured_cookies
     return web.Response(text=serializer.encode({'status': 'ok', 'has_cookies': exists}))
 
@@ -649,7 +648,7 @@ async def configuration(request):
 
 @routes.get(config.URL_PREFIX)
 async def index(request):
-    response = web.FileResponse(os.path.join(config.BASE_DIR, 'ui/index.html'))
+    response = web.FileResponse(Path(config.BASE_DIR) / 'ui/index.html')
     if 'metube_theme' not in request.cookies:
         response.set_cookie('metube_theme', config.DEFAULT_THEME)
     return response
@@ -657,7 +656,7 @@ async def index(request):
 @routes.get(config.URL_PREFIX + 'robots.txt')
 async def robots(request):
     if config.ROBOTS_TXT:
-        response = web.FileResponse(os.path.join(config.BASE_DIR, config.ROBOTS_TXT))
+        response = web.FileResponse(Path(config.BASE_DIR) / config.ROBOTS_TXT)
     else:
         response = web.Response(
             text="User-agent: *\nDisallow: /download/\nDisallow: /audio_download/\n"
@@ -682,7 +681,7 @@ if config.URL_PREFIX != '/':
 
 routes.static(config.URL_PREFIX + 'download/', config.DOWNLOAD_DIR, show_index=config.DOWNLOAD_DIRS_INDEXABLE)
 routes.static(config.URL_PREFIX + 'audio_download/', config.AUDIO_DOWNLOAD_DIR, show_index=config.DOWNLOAD_DIRS_INDEXABLE)
-routes.static(config.URL_PREFIX, os.path.join(config.BASE_DIR, 'ui'))
+routes.static(config.URL_PREFIX, Path(config.BASE_DIR) / 'ui')
 try:
     app.add_routes(routes)
 except ValueError as e:
@@ -730,8 +729,8 @@ if __name__ == '__main__':
 
 
     # Auto-detect cookie file on startup
-    if os.path.exists(COOKIES_PATH):
-        config.set_runtime_override('cookiefile', COOKIES_PATH)
+    if COOKIES_PATH.exists():
+        config.set_runtime_override('cookiefile', str(COOKIES_PATH))
         log.info(f'Cookie file detected at {COOKIES_PATH}')
 
     if config.HTTPS:
