@@ -1,10 +1,11 @@
-"""Tests for pure helpers in ``main`` (legacy API migration, logging, JSON serializer)."""
+"""Tests for pure helpers in ``main`` (logging, config, request models)."""
 
 from __future__ import annotations
 
-import json
 import logging
 import unittest
+
+from pydantic import ValidationError
 
 import main
 
@@ -19,29 +20,6 @@ class ParseLogLevelTests(unittest.TestCase):
         self.assertIsNone(main.parse_log_level(123))
 
 
-class ObjectSerializerTests(unittest.TestCase):
-    def test_dict_like_object(self):
-        class Obj:
-            def __init__(self):
-                self.a = 1
-
-        ser = main.ObjectSerializer()
-        self.assertEqual(json.loads(ser.encode(Obj())), {"a": 1})
-
-    def test_generator_becomes_list(self):
-        ser = main.ObjectSerializer()
-
-        def gen():
-            yield 1
-            yield 2
-
-        self.assertEqual(json.loads(ser.encode(gen())), [1, 2])
-
-    def test_string_not_split_to_chars(self):
-        ser = main.ObjectSerializer()
-        self.assertEqual(json.loads(ser.encode("hello")), "hello")
-
-
 class FrontendSafeTests(unittest.TestCase):
     def test_only_expected_keys(self):
         safe = main.config.frontend_safe()
@@ -52,108 +30,96 @@ class FrontendSafeTests(unittest.TestCase):
         self.assertIn("ALLOW_YTDL_OPTIONS_OVERRIDES", safe)
 
 
-class ParseYtdlOverridesTests(unittest.TestCase):
-    def test_empty_override_string_returns_empty_dict(self):
-        self.assertEqual(main._parse_ytdl_options_overrides("", enabled=False), {})
+class AddRequestTests(unittest.TestCase):
+    _base: dict = {
+        "url": "https://example.com/v",
+        "download_type": "video",
+        "codec": "auto",
+        "format": "any",
+        "quality": "best",
+    }
 
-    def test_rejects_non_object_json(self):
-        with self.assertRaises(main.web.HTTPBadRequest):
-            main._parse_ytdl_options_overrides('["bad"]', enabled=True)
+    def test_valid_video(self):
+        req = main.AddRequest.model_validate(self._base)
+        self.assertEqual(req.download_type, "video")
+        self.assertEqual(req.quality, "best")
 
-    def test_rejects_non_empty_overrides_when_disabled(self):
-        with self.assertRaises(main.web.HTTPBadRequest):
-            main._parse_ytdl_options_overrides('{"exec": "rm -rf /"}', enabled=False)
+    def test_rejects_empty_url(self):
+        with self.assertRaises(ValidationError):
+            main.AddRequest.model_validate({**self._base, "url": ""})
 
-    def test_allows_any_keys_when_enabled(self):
-        self.assertEqual(
-            main._parse_ytdl_options_overrides('{"exec": "rm -rf /"}', enabled=True),
-            {"exec": "rm -rf /"},
-        )
+    def test_rejects_invalid_download_type(self):
+        with self.assertRaises(ValidationError):
+            main.AddRequest.model_validate({**self._base, "download_type": "zip"})
 
+    def test_rejects_bad_custom_name_prefix(self):
+        with self.assertRaises(ValidationError):
+            main.AddRequest.model_validate({**self._base, "custom_name_prefix": "../secret"})
 
-class ParseDownloadOptionsTests(unittest.TestCase):
-    def test_accepts_known_preset_and_overrides(self):
-        previous = dict(main.config.YTDL_OPTIONS_PRESETS)
-        previous_allow = main.config.ALLOW_YTDL_OPTIONS_OVERRIDES
-        main.config.YTDL_OPTIONS_PRESETS = {"With subtitles": {"writesubtitles": True}}
-        main.config.ALLOW_YTDL_OPTIONS_OVERRIDES = True
-        try:
-            parsed = main.parse_download_options({
+    def test_rejects_invalid_subtitle_lang(self):
+        with self.assertRaises(ValidationError):
+            main.AddRequest.model_validate({**self._base, "subtitle_langs": ["!bad"]})
+
+    def test_rejects_non_object_overrides_json(self):
+        with self.assertRaises(ValidationError):
+            main.AddRequest.model_validate({**self._base, "ytdl_options_overrides": '["bad"]'})
+
+    def test_rejects_invalid_overrides_json(self):
+        with self.assertRaises(ValidationError):
+            main.AddRequest.model_validate({**self._base, "ytdl_options_overrides": "not-json"})
+
+    def test_parses_string_overrides(self):
+        req = main.AddRequest.model_validate({**self._base, "ytdl_options_overrides": '{"quiet": true}'})
+        self.assertEqual(req.ytdl_options_overrides, {"quiet": True})
+
+    def test_empty_overrides_string_becomes_empty_dict(self):
+        req = main.AddRequest.model_validate({**self._base, "ytdl_options_overrides": ""})
+        self.assertEqual(req.ytdl_options_overrides, {})
+
+    def test_legacy_singular_preset_normalized(self):
+        req = main.AddRequest.model_validate({**self._base, "ytdl_options_preset": "Solo"})
+        self.assertEqual(req.ytdl_options_presets, ["Solo"])
+
+    def test_multiple_presets_list(self):
+        req = main.AddRequest.model_validate({**self._base, "ytdl_options_presets": ["A", "B"]})
+        self.assertEqual(req.ytdl_options_presets, ["A", "B"])
+
+    def test_captions_forces_best_quality(self):
+        req = main.AddRequest.model_validate({**self._base, "download_type": "captions", "quality": "720"})
+        self.assertEqual(req.quality, "best")
+
+    def test_thumbnail_forces_best_quality(self):
+        req = main.AddRequest.model_validate({**self._base, "download_type": "thumbnail", "quality": "720"})
+        self.assertEqual(req.quality, "best")
+
+    def test_audio_forces_auto_codec(self):
+        req = main.AddRequest.model_validate({
+            "url": "https://example.com/v",
+            "download_type": "audio",
+            "codec": "h264",
+            "format": "mp3",
+            "quality": "best",
+        })
+        self.assertEqual(req.codec, "auto")
+
+    def test_audio_rejects_invalid_format(self):
+        with self.assertRaises(ValidationError):
+            main.AddRequest.model_validate({
                 "url": "https://example.com/v",
-                "download_type": "video",
+                "download_type": "audio",
                 "codec": "auto",
-                "format": "any",
+                "format": "mp4",
                 "quality": "best",
-                "ytdl_options_preset": "With subtitles",
-                "ytdl_options_overrides": '{"writesubtitles": true}',
-            })
-        finally:
-            main.config.YTDL_OPTIONS_PRESETS = previous
-            main.config.ALLOW_YTDL_OPTIONS_OVERRIDES = previous_allow
-        self.assertEqual(parsed["ytdl_options_presets"], ["With subtitles"])
-        self.assertEqual(parsed["ytdl_options_overrides"], {"writesubtitles": True})
-
-    def test_accepts_multiple_presets_in_order(self):
-        previous = dict(main.config.YTDL_OPTIONS_PRESETS)
-        main.config.YTDL_OPTIONS_PRESETS = {
-            "A": {"writesubtitles": True},
-            "B": {"writesubtitles": False},
-        }
-        try:
-            parsed = main.parse_download_options({
-                "url": "https://example.com/v",
-                "download_type": "video",
-                "codec": "auto",
-                "format": "any",
-                "quality": "best",
-                "ytdl_options_presets": ["A", "B"],
-            })
-        finally:
-            main.config.YTDL_OPTIONS_PRESETS = previous
-        self.assertEqual(parsed["ytdl_options_presets"], ["A", "B"])
-
-    def test_legacy_singular_preset_string_normalized_to_list(self):
-        previous = dict(main.config.YTDL_OPTIONS_PRESETS)
-        main.config.YTDL_OPTIONS_PRESETS = {"Solo": {}}
-        try:
-            parsed = main.parse_download_options({
-                "url": "https://example.com/v",
-                "download_type": "video",
-                "codec": "auto",
-                "format": "any",
-                "quality": "best",
-                "ytdl_options_preset": "Solo",
-            })
-        finally:
-            main.config.YTDL_OPTIONS_PRESETS = previous
-        self.assertEqual(parsed["ytdl_options_presets"], ["Solo"])
-
-    def test_rejects_unknown_preset(self):
-        with self.assertRaises(main.web.HTTPBadRequest):
-            main.parse_download_options({
-                "url": "https://example.com/v",
-                "download_type": "video",
-                "codec": "auto",
-                "format": "any",
-                "quality": "best",
-                "ytdl_options_presets": ["Missing preset"],
             })
 
-    def test_rejects_unknown_preset_in_list(self):
-        previous = dict(main.config.YTDL_OPTIONS_PRESETS)
-        main.config.YTDL_OPTIONS_PRESETS = {"Known": {}}
-        try:
-            with self.assertRaises(main.web.HTTPBadRequest):
-                main.parse_download_options({
-                    "url": "https://example.com/v",
-                    "download_type": "video",
-                    "codec": "auto",
-                    "format": "any",
-                    "quality": "best",
-                    "ytdl_options_presets": ["Known", "Nope"],
-                })
-        finally:
-            main.config.YTDL_OPTIONS_PRESETS = previous
+    def test_video_rejects_invalid_quality(self):
+        with self.assertRaises(ValidationError):
+            main.AddRequest.model_validate({**self._base, "quality": "999p"})
+
+    def test_playlist_item_limit_defaults_to_none(self):
+        req = main.AddRequest.model_validate(self._base)
+        self.assertIsNone(req.playlist_item_limit)
+
 
 if __name__ == "__main__":
     unittest.main()

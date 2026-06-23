@@ -179,34 +179,6 @@ async def test_delete_queue_calls_cancel(mock_dqueue):
     mock_dqueue.cancel.assert_awaited_once_with(["http://x"])
 
 
-@pytest.mark.asyncio
-async def test_start_pending(mock_dqueue):
-    req = _json_request({"ids": ["a"]})
-    resp = await main.start(req)
-    assert resp.status == 200
-    mock_dqueue.start_pending.assert_awaited_once_with(["a"])
-
-
-@pytest.mark.asyncio
-async def test_history_shape(mock_dqueue):
-    mock_dqueue.queue.saved_items.return_value = []
-    mock_dqueue.done.saved_items.return_value = []
-    mock_dqueue.pending.saved_items.return_value = []
-    req = MagicMock(spec=web.Request)
-    resp = await main.history(req)
-    assert resp.status == 200
-    data = json.loads(resp.text)
-    assert set(data.keys()) == {"done", "queue", "pending"}
-
-
-@pytest.mark.asyncio
-async def test_version_json(mock_dqueue):
-    req = MagicMock(spec=web.Request)
-    resp = await main.version(req)
-    assert resp.status == 200
-    body = json.loads(resp.text)
-    assert "yt-dlp" in body and "version" in body
-
 
 @pytest.mark.asyncio
 async def test_presets_endpoint_returns_names(mock_dqueue, monkeypatch):

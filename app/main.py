@@ -1,25 +1,39 @@
 #!/usr/bin/env python3
 # pylint: disable=no-member,method-hidden
 
-import os
-import sys
+from __future__ import annotations
+
 import asyncio
+import json
+import logging
+import os
+import re
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Literal
+from urllib.parse import unquote
+
 from aiohttp import web
 from aiohttp.web import GracefulExit
-import logging
-import json
-import re
-from urllib.parse import unquote
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError as PydanticValidationError, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings.exceptions import SettingsError
 
 from ytdl import DownloadQueueNotifier, DownloadQueue, Download
 
 log = logging.getLogger('main')
 
 _NIGHTLY_TIME_RE = re.compile(r'^([01]\d|2[0-3]):[0-5]\d$')
+_SUBTITLE_LANG_RE = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$')
 _RESTART_FOR_UPDATE = False
+
+VALID_DOWNLOAD_TYPES = frozenset({'video', 'audio', 'captions', 'thumbnail'})
+VALID_VIDEO_CODECS = frozenset({'auto', 'h264', 'h265', 'av1', 'vp9'})
+VALID_VIDEO_FORMATS = frozenset({'any', 'mp4', 'ios'})
+VALID_AUDIO_FORMATS = frozenset({'m4a', 'mp3', 'opus', 'wav', 'flac'})
+VALID_VIDEO_QUALITIES = frozenset({'best', 'worst', '2160', '1440', '1080', '720', '480', '360', '240'})
+
 
 def _request_graceful_exit() -> None:
     raise GracefulExit()
@@ -34,18 +48,49 @@ def seconds_until_next_daily_time(time_hhmm: str, now: datetime | None = None) -
         target += timedelta(days=1)
     return (target - now).total_seconds()
 
+
 def parse_log_level(logLevel: Any) -> int | None:
     if not isinstance(logLevel, str):
         return None
     return getattr(logging, logLevel.upper(), None)
 
-# Configure logging before Config() uses it so early messages are not dropped.
-# Only configure if no handlers are set (avoid clobbering hosting app settings).
+
 if not logging.getLogger().hasHandlers():
     logging.basicConfig(level=parse_log_level(os.environ.get('LOGLEVEL', 'INFO')) or logging.INFO)
 
-class Config:
-    _DEFAULTS = {
+
+class Config(BaseSettings):
+    model_config = SettingsConfigDict(case_sensitive=True, extra='ignore')
+
+    DOWNLOAD_DIR: str = '.'
+    AUDIO_DOWNLOAD_DIR: str = ''
+    TEMP_DIR: str = ''
+    DELETE_FILE_ON_TRASHCAN: bool = False
+    STATE_DIR: str = '.'
+    PUBLIC_HOST_URL: str = 'download/'
+    PUBLIC_HOST_AUDIO_URL: str = 'audio_download/'
+    OUTPUT_TEMPLATE: str = '%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s'
+    OUTPUT_TEMPLATE_PLAYLIST: str = '%(playlist_title)s/%(title)s.%(ext)s'
+    OUTPUT_TEMPLATE_CHANNEL: str = '%(channel)s/%(title)s.%(ext)s'
+    DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT: int = 0
+    CLEAR_COMPLETED_AFTER: int = 0
+    YTDL_OPTIONS: dict[str, Any] = Field(default_factory=dict)
+    YTDL_OPTIONS_FILE: str = ''
+    YTDL_OPTIONS_PRESETS: dict[str, Any] = Field(default_factory=dict)
+    ALLOW_YTDL_OPTIONS_OVERRIDES: bool = False
+    CORS_ALLOWED_ORIGINS: str = ''
+    HOST: str = '0.0.0.0'
+    PORT: int = 8081
+    BASE_DIR: str = ''
+    MAX_CONCURRENT_DOWNLOADS: int = 3
+    LOGLEVEL: str = 'INFO'
+    YTDL_NIGHTLY_UPDATE_TIME: str = ''
+
+    _runtime_overrides: dict[str, Any] = PrivateAttr(default_factory=dict)
+    _ytdl_options_base: dict[str, Any] = PrivateAttr(default_factory=dict)
+
+    # String-form defaults kept for the test helper (mirrors field defaults as env var strings).
+    _DEFAULTS: ClassVar[dict[str, str]] = {
         'DOWNLOAD_DIR': '.',
         'AUDIO_DOWNLOAD_DIR': '',
         'TEMP_DIR': '',
@@ -56,7 +101,7 @@ class Config:
         'OUTPUT_TEMPLATE': '%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s',
         'OUTPUT_TEMPLATE_PLAYLIST': '%(playlist_title)s/%(title)s.%(ext)s',
         'OUTPUT_TEMPLATE_CHANNEL': '%(channel)s/%(title)s.%(ext)s',
-        'DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT' : '0',
+        'DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT': '0',
         'CLEAR_COMPLETED_AFTER': '0',
         'YTDL_OPTIONS': '{}',
         'YTDL_OPTIONS_FILE': '',
@@ -71,72 +116,97 @@ class Config:
         'YTDL_NIGHTLY_UPDATE_TIME': '',
     }
 
-    _BOOLEAN = ('DELETE_FILE_ON_TRASHCAN', 'ALLOW_YTDL_OPTIONS_OVERRIDES')
+    _FRONTEND_KEYS: ClassVar[tuple[str, ...]] = (
+        'PUBLIC_HOST_URL',
+        'PUBLIC_HOST_AUDIO_URL',
+        'DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT',
+        'ALLOW_YTDL_OPTIONS_OVERRIDES',
+    )
 
-    def __init__(self):
-        for k, v in self._DEFAULTS.items():
-            setattr(self, k, os.environ.get(k, v))
+    def __init__(self, **kwargs: Any) -> None:
+        try:
+            super().__init__(**kwargs)
+        except PydanticValidationError as exc:
+            for err in exc.errors(include_url=False):
+                field = '.'.join(str(p) for p in err.get('loc', ())) or 'unknown'
+                log.error('Config error [%s]: %s', field, err['msg'])
+            sys.exit(1)
+        except SettingsError as exc:
+            log.error('Config error: %s', exc)
+            sys.exit(1)
 
+    @field_validator('PORT')
+    @classmethod
+    def _valid_port(cls, v: int) -> int:
+        if not (1 <= v <= 65535):
+            raise ValueError('must be between 1 and 65535')
+        return v
+
+    @field_validator('MAX_CONCURRENT_DOWNLOADS')
+    @classmethod
+    def _positive_downloads(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError('must be >= 1')
+        return v
+
+    @field_validator('CLEAR_COMPLETED_AFTER')
+    @classmethod
+    def _non_negative_clear(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError('must be >= 0')
+        return v
+
+    @field_validator('YTDL_NIGHTLY_UPDATE_TIME')
+    @classmethod
+    def _valid_nightly_time(cls, v: str) -> str:
+        if v and not _NIGHTLY_TIME_RE.match(v):
+            raise ValueError('must be HH:MM (24-hour format)')
+        return v
+
+    @field_validator('YTDL_OPTIONS_FILE')
+    @classmethod
+    def _resolve_options_file(cls, v: str) -> str:
+        if v and v.startswith('.'):
+            return str(Path(v).resolve())
+        return v
+
+    @field_validator('YTDL_OPTIONS_PRESETS')
+    @classmethod
+    def _validate_presets_shape(cls, v: dict) -> dict:
+        for name, opts in v.items():
+            if not isinstance(name, str) or not isinstance(opts, dict):
+                raise ValueError('each entry must be a string name mapped to an options dict')
+        return v
+
+    @model_validator(mode='after')
+    def _post_init(self) -> 'Config':
         if not self.AUDIO_DOWNLOAD_DIR:
             self.AUDIO_DOWNLOAD_DIR = self.DOWNLOAD_DIR
         if not self.TEMP_DIR:
             self.TEMP_DIR = self.DOWNLOAD_DIR
-
-        for k, v in self.__dict__.items():
-            if k in self._BOOLEAN:
-                if v not in ('true', 'false', 'True', 'False', '1', '0'):
-                    log.error(f'Environment variable "{k}" is set to a non-boolean value "{v}"')
-                    sys.exit(1)
-                setattr(self, k, v in ('true', 'True', '1'))
-
-        # A blank PUBLIC_HOST_AUDIO_URL (e.g. set empty in a compose file) bypasses the
-        # default via os.environ.get, which would leave audio links root-relative and 404.
-        # Fall back to the 'audio_download/' route that serves AUDIO_DOWNLOAD_DIR. When
-        # PUBLIC_HOST_URL is also blank we leave it blank to preserve serving from web root.
+        # A blank PUBLIC_HOST_AUDIO_URL with a non-blank PUBLIC_HOST_URL would produce
+        # root-relative audio links that 404. Fall back to the audio_download/ route.
         if not self.PUBLIC_HOST_AUDIO_URL and self.PUBLIC_HOST_URL:
-            self.PUBLIC_HOST_AUDIO_URL = self._DEFAULTS['PUBLIC_HOST_AUDIO_URL']
-
+            self.PUBLIC_HOST_AUDIO_URL = 'audio_download/'
         for attr in ('PUBLIC_HOST_URL', 'PUBLIC_HOST_AUDIO_URL'):
             val = getattr(self, attr)
             if val and not val.endswith('/'):
                 setattr(self, attr, val + '/')
-
-        # Convert relative addresses to absolute addresses to prevent the failure of file address comparison
-        if self.YTDL_OPTIONS_FILE and self.YTDL_OPTIONS_FILE.startswith('.'):
-            self.YTDL_OPTIONS_FILE = str(Path(self.YTDL_OPTIONS_FILE).resolve())
-        if self.YTDL_NIGHTLY_UPDATE_TIME and not _NIGHTLY_TIME_RE.match(self.YTDL_NIGHTLY_UPDATE_TIME):
-            log.error(
-                'Environment variable "YTDL_NIGHTLY_UPDATE_TIME" must be HH:MM (24-hour), got "%s"',
-                self.YTDL_NIGHTLY_UPDATE_TIME,
-            )
-            sys.exit(1)
-
-        self._validate_int('MAX_CONCURRENT_DOWNLOADS', minimum=1)
-        self._validate_int('PORT', minimum=1, maximum=65535)
-        self._validate_int('CLEAR_COMPLETED_AFTER', minimum=0)
-
-        self._runtime_overrides = {}
-
-        success,_ = self.load_ytdl_options()
-        if not success:
-            sys.exit(1)
-        success,_ = self.load_ytdl_option_presets()
-        if not success:
-            sys.exit(1)
-
-    def _validate_int(self, key: str, *, minimum: int | None = None, maximum: int | None = None) -> None:
-        raw = getattr(self, key)
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            log.error('Environment variable "%s" must be an integer, got "%s"', key, raw)
-            sys.exit(1)
-        if minimum is not None and value < minimum:
-            log.error('Environment variable "%s" must be >= %d, got "%s"', key, minimum, raw)
-            sys.exit(1)
-        if maximum is not None and value > maximum:
-            log.error('Environment variable "%s" must be <= %d, got "%s"', key, maximum, raw)
-            sys.exit(1)
+        if self.YTDL_OPTIONS_FILE:
+            log.info('Loading yt-dlp custom options from "%s"', self.YTDL_OPTIONS_FILE)
+            path = Path(self.YTDL_OPTIONS_FILE)
+            if not path.exists():
+                raise ValueError(f'YTDL_OPTIONS_FILE: file "{self.YTDL_OPTIONS_FILE}" not found')
+            try:
+                with path.open() as f:
+                    opts = json.load(f)
+                if not isinstance(opts, dict):
+                    raise ValueError('YTDL_OPTIONS_FILE: contents must be a JSON object')
+            except json.JSONDecodeError as exc:
+                raise ValueError('YTDL_OPTIONS_FILE: not valid JSON') from exc
+            self.YTDL_OPTIONS.update(opts)
+        self._ytdl_options_base = dict(self.YTDL_OPTIONS)
+        return self
 
     def set_runtime_override(self, key: str, value: Any) -> None:
         self._runtime_overrides[key] = value
@@ -146,97 +216,179 @@ class Config:
         self._runtime_overrides.pop(key, None)
         self.YTDL_OPTIONS.pop(key, None)
 
-    def _apply_runtime_overrides(self):
+    def _apply_runtime_overrides(self) -> None:
         self.YTDL_OPTIONS.update(self._runtime_overrides)
 
-    # Keys sent to the browser. Sensitive or server-only keys (YTDL_OPTIONS,
-    # paths, TLS config, etc.) are intentionally excluded.
-    _FRONTEND_KEYS = (
-        'PUBLIC_HOST_URL',
-        'PUBLIC_HOST_AUDIO_URL',
-        'DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT',
-        'ALLOW_YTDL_OPTIONS_OVERRIDES',
-    )
-
-    def frontend_safe(self) -> dict[str, Any]:
-        """Return only the config keys that are safe to expose to browser clients.
-
-        Sensitive or server-only keys (YTDL_OPTIONS, file-system paths, TLS
-        settings, etc.) are intentionally excluded.
-        """
-        return {k: getattr(self, k) for k in self._FRONTEND_KEYS}
-
     def load_ytdl_options(self) -> tuple[bool, str]:
-        try:
-            self.YTDL_OPTIONS = json.loads(os.environ.get('YTDL_OPTIONS', '{}'))
-            assert isinstance(self.YTDL_OPTIONS, dict)
-        except (json.decoder.JSONDecodeError, AssertionError):
-            msg = 'Environment variable YTDL_OPTIONS is invalid'
-            log.error(msg)
-            return (False, msg)
-
-        if not self.YTDL_OPTIONS_FILE:
-            self._apply_runtime_overrides()
-            return (True, '')
-
-        log.info(f'Loading yt-dlp custom options from "{self.YTDL_OPTIONS_FILE}"')
-        if not Path(self.YTDL_OPTIONS_FILE).exists():
-            msg = f'File "{self.YTDL_OPTIONS_FILE}" not found'
-            log.error(msg)
-            return (False, msg)
-        try:
-            with Path(self.YTDL_OPTIONS_FILE).open() as json_data:
-                opts = json.load(json_data)
-            assert isinstance(opts, dict)
-        except (json.decoder.JSONDecodeError, AssertionError):
-            msg = 'YTDL_OPTIONS_FILE contents is invalid'
-            log.error(msg)
-            return (False, msg)
-
-        self.YTDL_OPTIONS.update(opts)
+        """Reset YTDL_OPTIONS to its base state (env + file) and re-apply remaining runtime overrides."""
+        self.YTDL_OPTIONS = dict(self._ytdl_options_base)
         self._apply_runtime_overrides()
         return (True, '')
 
-    def load_ytdl_option_presets(self) -> tuple[bool, str]:
-        try:
-            self.YTDL_OPTIONS_PRESETS = json.loads(os.environ.get('YTDL_OPTIONS_PRESETS', '{}'))
-            assert isinstance(self.YTDL_OPTIONS_PRESETS, dict)
-            assert all(isinstance(name, str) and isinstance(options, dict) for name, options in self.YTDL_OPTIONS_PRESETS.items())
-        except (json.decoder.JSONDecodeError, AssertionError):
-            msg = 'Environment variable YTDL_OPTIONS_PRESETS is invalid'
-            log.error(msg)
-            return (False, msg)
+    def frontend_safe(self) -> dict[str, Any]:
+        return {k: getattr(self, k) for k in self._FRONTEND_KEYS}
 
-        return (True, '')
 
 config = Config()
-# Align root logger level with Config (keeps a single source of truth).
-# This re-applies the log level after Config loads, in case LOGLEVEL was
-# overridden by config file settings or differs from the environment variable.
 logging.getLogger().setLevel(parse_log_level(str(config.LOGLEVEL)) or logging.INFO)
 
-class ObjectSerializer(json.JSONEncoder):
-    def default(self, obj: Any) -> Any:
-        # Prefer an explicit client-facing view when the object provides one
-        # (e.g. DownloadInfo / SubscriptionInfo) so server-only or bulky fields
-        # are never broadcast to browser clients.
-        to_public = getattr(obj, 'to_public_dict', None)
-        if callable(to_public):
-            return to_public()
-        # Fall back to __dict__ for other custom objects
-        if hasattr(obj, '__dict__'):
-            return obj.__dict__
-        # Convert iterables (generators, dict_items, etc.) to lists
-        # Exclude strings and bytes which are also iterable
-        elif hasattr(obj, '__iter__') and not isinstance(obj, (str, bytes)):
-            try:
-                return list(obj)
-            except Exception:
-                pass
-        # Fall back to default behavior
-        return json.JSONEncoder.default(self, obj)
 
-serializer = ObjectSerializer()
+# ---------------------------------------------------------------------------
+# Request models
+# ---------------------------------------------------------------------------
+
+class AddRequest(BaseModel):
+    url: str
+    download_type: str
+    quality: str
+    format: str
+    codec: str = 'auto'
+    folder: str | None = None
+    custom_name_prefix: str = ''
+    playlist_item_limit: int | None = None
+    auto_start: bool = True
+    subtitle_langs: list[str] = Field(default_factory=list)
+    ytdl_options_presets: list[str] = Field(default_factory=list)
+    ytdl_options_overrides: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode='before')
+    @classmethod
+    def _normalize_legacy_preset(cls, data: dict) -> dict:
+        if 'ytdl_options_preset' in data and 'ytdl_options_presets' not in data:
+            raw = data.pop('ytdl_options_preset')
+            if isinstance(raw, str) and raw.strip():
+                data['ytdl_options_presets'] = [raw.strip()]
+            elif isinstance(raw, list):
+                data['ytdl_options_presets'] = [str(x).strip() for x in raw if str(x).strip()]
+        return data
+
+    @field_validator('url')
+    @classmethod
+    def _nonempty_url(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('must not be empty')
+        return v.strip()
+
+    @field_validator('download_type')
+    @classmethod
+    def _valid_type(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in VALID_DOWNLOAD_TYPES:
+            raise ValueError(f'must be one of {sorted(VALID_DOWNLOAD_TYPES)}')
+        return v
+
+    @field_validator('codec')
+    @classmethod
+    def _valid_codec(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in VALID_VIDEO_CODECS:
+            raise ValueError(f'must be one of {sorted(VALID_VIDEO_CODECS)}')
+        return v
+
+    @field_validator('custom_name_prefix')
+    @classmethod
+    def _no_traversal(cls, v: str) -> str:
+        if v and ('..' in v or v.startswith('/') or v.startswith('\\')):
+            raise ValueError('must not contain ".." or start with a path separator')
+        return v
+
+    @field_validator('subtitle_langs', mode='before')
+    @classmethod
+    def _normalize_langs(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            return [lang.strip() for lang in v.split(',') if lang.strip()]
+        return v
+
+    @field_validator('subtitle_langs')
+    @classmethod
+    def _valid_langs(cls, v: list[str]) -> list[str]:
+        for code in v:
+            if not _SUBTITLE_LANG_RE.match(code):
+                raise ValueError(f'invalid subtitle language code: {code!r}')
+        return v
+
+    @field_validator('ytdl_options_overrides', mode='before')
+    @classmethod
+    def _parse_overrides_json(cls, v: Any) -> dict:
+        if v is None or v == '':
+            return {}
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+            except json.JSONDecodeError as exc:
+                raise ValueError('must be valid JSON') from exc
+            if not isinstance(parsed, dict):
+                raise ValueError('must be a JSON object')
+            return parsed
+        return v
+
+    @model_validator(mode='after')
+    def _validate_type_specific(self) -> 'AddRequest':
+        dt = self.download_type
+        fmt = (self.format or '').strip().lower()
+        qual = (self.quality or '').strip().lower()
+
+        if dt == 'video':
+            if fmt not in VALID_VIDEO_FORMATS:
+                raise ValueError(f'format must be one of {sorted(VALID_VIDEO_FORMATS)} for video')
+            if qual not in VALID_VIDEO_QUALITIES:
+                raise ValueError(f'quality must be one of {sorted(VALID_VIDEO_QUALITIES)} for video')
+            self.format = fmt
+            self.quality = qual
+        elif dt == 'audio':
+            if fmt not in VALID_AUDIO_FORMATS:
+                raise ValueError(f'format must be one of {sorted(VALID_AUDIO_FORMATS)} for audio')
+            allowed = {'best'}
+            if fmt == 'mp3':
+                allowed |= {'320', '192', '128'}
+            elif fmt == 'm4a':
+                allowed |= {'192', '128'}
+            if qual not in allowed:
+                raise ValueError(f'quality must be one of {sorted(allowed)} for {fmt}')
+            self.format = fmt
+            self.quality = qual
+            self.codec = 'auto'
+        elif dt in ('captions', 'thumbnail'):
+            self.format = fmt
+            self.quality = 'best'
+            self.codec = 'auto'
+
+        return self
+
+
+class DeleteRequest(BaseModel):
+    ids: list[str]
+    where: Literal['queue', 'done']
+
+
+# ---------------------------------------------------------------------------
+# Response models
+# ---------------------------------------------------------------------------
+
+class StatusResponse(BaseModel):
+    status: Literal['ok', 'error'] = 'ok'
+    msg: str | None = None
+
+
+class CookieStatusResponse(BaseModel):
+    status: Literal['ok'] = 'ok'
+    has_cookies: bool
+
+
+class PresetsResponse(BaseModel):
+    presets: list[str]
+
+
+class ConfigurationResponse(BaseModel):
+    ALLOW_YTDL_OPTIONS_OVERRIDES: bool
+    PUBLIC_HOST_URL: str
+    PUBLIC_HOST_AUDIO_URL: str
+    DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT: int
+
+
+# ---------------------------------------------------------------------------
+# WSGI / middleware infrastructure
+# ---------------------------------------------------------------------------
 
 _STATE_DIR_REAL = Path(config.STATE_DIR).resolve()
 
@@ -263,45 +415,6 @@ async def state_dir_guard(request: web.Request, handler: Any) -> web.StreamRespo
 app = web.Application(middlewares=[state_dir_guard])
 _cors_origins = [o.strip() for o in config.CORS_ALLOWED_ORIGINS.split(',') if o.strip()] if config.CORS_ALLOWED_ORIGINS else []
 routes = web.RouteTableDef()
-VALID_DOWNLOAD_TYPES = {'video', 'audio', 'captions', 'thumbnail'}
-VALID_VIDEO_CODECS = {'auto', 'h264', 'h265', 'av1', 'vp9'}
-VALID_VIDEO_FORMATS = {'any', 'mp4', 'ios'}
-VALID_AUDIO_FORMATS = {'m4a', 'mp3', 'opus', 'wav', 'flac'}
-VALID_THUMBNAIL_FORMATS = {'jpg'}
-def _parse_ytdl_options_overrides(value: Any, *, enabled: bool) -> dict[str, Any]:
-    if value is None or value == '':
-        return {}
-
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except json.JSONDecodeError as exc:
-            raise web.HTTPBadRequest(reason='ytdl_options_overrides must be valid JSON') from exc
-
-    if not isinstance(value, dict):
-        raise web.HTTPBadRequest(reason='ytdl_options_overrides must be a JSON object')
-
-    if value and not enabled:
-        raise web.HTTPBadRequest(reason='ytdl_options_overrides are disabled')
-
-    return value
-
-
-def _parse_ytdl_options_presets(post: dict) -> list[str]:
-    """Normalize preset names from add/subscribe body; supports list or legacy singular string."""
-    raw = post.get('ytdl_options_presets')
-    if raw is None:
-        raw = post.get('ytdl_options_preset')
-    if raw is None:
-        return []
-    if isinstance(raw, list):
-        return [str(x).strip() for x in raw if str(x).strip()]
-    if isinstance(raw, str):
-        s = raw.strip()
-        return [s] if s else []
-    raise web.HTTPBadRequest(
-        reason='ytdl_options_presets must be a JSON array of strings (or legacy ytdl_options_preset string)',
-    )
 
 
 class Notifier(DownloadQueueNotifier):
@@ -319,6 +432,7 @@ class Notifier(DownloadQueueNotifier):
 
     async def cleared(self, id):
         log.info(f"Notifier: Download cleared - {id}")
+
 
 dqueue = DownloadQueue(config, Notifier())
 
@@ -365,163 +479,73 @@ async def _read_json_request(request: web.Request) -> dict:
     return post
 
 
-def parse_download_options(post: dict[str, Any]) -> dict[str, Any]:
-    """Validate add body; raise HTTPBadRequest on invalid input."""
-    url = post.get('url')
-    download_type = post.get('download_type')
-    codec = post.get('codec')
-    format = post.get('format')
-    quality = post.get('quality')
-    if not url or not quality or not download_type:
-        raise web.HTTPBadRequest(reason="missing 'url', 'download_type', or 'quality'")
-    url = str(url).strip()
-    folder = post.get('folder')
-    custom_name_prefix = post.get('custom_name_prefix')
-    playlist_item_limit = post.get('playlist_item_limit')
-    auto_start = post.get('auto_start')
-    ytdl_options_overrides = post.get('ytdl_options_overrides')
+def _first_validation_error(exc: PydanticValidationError) -> str:
+    errors = exc.errors(include_url=False)
+    return errors[0]['msg'] if errors else 'invalid request'
 
-    if custom_name_prefix is None:
-        custom_name_prefix = ''
-    if custom_name_prefix and ('..' in custom_name_prefix or custom_name_prefix.startswith('/') or custom_name_prefix.startswith('\\')):
-        raise web.HTTPBadRequest(reason='custom_name_prefix must not contain ".." or start with a path separator')
-    if auto_start is None:
-        auto_start = True
-    if playlist_item_limit is None:
-        playlist_item_limit = config.DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT
-    download_type = str(download_type).strip().lower()
-    codec = str(codec or 'auto').strip().lower()
-    format = str(format or '').strip().lower()
-    quality = str(quality).strip().lower()
-    raw_langs = post.get("subtitle_langs") or []
-    if isinstance(raw_langs, str):
-        raw_langs = [l.strip() for l in raw_langs.split(",") if l.strip()]
-    subtitle_langs = []
-    for code in raw_langs:
-        code = str(code).strip()
-        if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$', code):
-            raise web.HTTPBadRequest(reason=f'Invalid subtitle language code: {code!r}')
-        subtitle_langs.append(code)
 
-    ytdl_options_presets = _parse_ytdl_options_presets(post)
-    ytdl_options_overrides = _parse_ytdl_options_overrides(
-        ytdl_options_overrides,
-        enabled=config.ALLOW_YTDL_OPTIONS_OVERRIDES,
-    )
+# ---------------------------------------------------------------------------
+# Route handlers
+# ---------------------------------------------------------------------------
 
-    for preset_name in ytdl_options_presets:
-        if preset_name not in config.YTDL_OPTIONS_PRESETS:
-            raise web.HTTPBadRequest(reason='ytdl_options_presets must only contain configured preset names')
-
-    if download_type not in VALID_DOWNLOAD_TYPES:
-        raise web.HTTPBadRequest(reason=f'download_type must be one of {sorted(VALID_DOWNLOAD_TYPES)}')
-    if codec not in VALID_VIDEO_CODECS:
-        raise web.HTTPBadRequest(reason=f'codec must be one of {sorted(VALID_VIDEO_CODECS)}')
-
-    if download_type == 'video':
-        if format not in VALID_VIDEO_FORMATS:
-            raise web.HTTPBadRequest(reason=f'format must be one of {sorted(VALID_VIDEO_FORMATS)} for video')
-        if quality not in {'best', 'worst', '2160', '1440', '1080', '720', '480', '360', '240'}:
-            raise web.HTTPBadRequest(reason="quality must be one of ['best', '2160', '1440', '1080', '720', '480', '360', '240', 'worst'] for video")
-    elif download_type == 'audio':
-        if format not in VALID_AUDIO_FORMATS:
-            raise web.HTTPBadRequest(reason=f'format must be one of {sorted(VALID_AUDIO_FORMATS)} for audio')
-        allowed_audio_qualities = {'best'}
-        if format == 'mp3':
-            allowed_audio_qualities |= {'320', '192', '128'}
-        elif format == 'm4a':
-            allowed_audio_qualities |= {'192', '128'}
-        if quality not in allowed_audio_qualities:
-            raise web.HTTPBadRequest(reason=f'quality must be one of {sorted(allowed_audio_qualities)} for format {format}')
-        codec = 'auto'
-    elif download_type in ('captions', 'thumbnail'):
-        quality = 'best'
-        codec = 'auto'
-
-    try:
-        playlist_item_limit = int(playlist_item_limit)
-    except (TypeError, ValueError) as exc:
-        raise web.HTTPBadRequest(reason='playlist_item_limit must be an integer') from exc
-
-    return {
-        'url': url,
-        'download_type': download_type,
-        'codec': codec,
-        'format': format,
-        'quality': quality,
-        'folder': folder,
-        'custom_name_prefix': custom_name_prefix,
-        'playlist_item_limit': playlist_item_limit,
-        'auto_start': auto_start,
-        'subtitle_langs': subtitle_langs,
-        'ytdl_options_presets': ytdl_options_presets,
-        'ytdl_options_overrides': ytdl_options_overrides,
-    }
+COOKIES_PATH = Path(config.STATE_DIR) / 'cookies.txt'
 
 
 @routes.post('/add')
 async def add(request: web.Request) -> web.Response:
-    log.info("Received request to add download")
     post = await _read_json_request(request)
     try:
-        o = parse_download_options(post)
-    except web.HTTPBadRequest as e:
-        log.error("Bad request: %s", e.reason)
-        raise
+        req = AddRequest.model_validate(post)
+    except PydanticValidationError as exc:
+        raise web.HTTPBadRequest(reason=_first_validation_error(exc)) from exc
+
+    for preset_name in req.ytdl_options_presets:
+        if preset_name not in config.YTDL_OPTIONS_PRESETS:
+            raise web.HTTPBadRequest(reason='ytdl_options_presets must only contain configured preset names')
+    if req.ytdl_options_overrides and not config.ALLOW_YTDL_OPTIONS_OVERRIDES:
+        raise web.HTTPBadRequest(reason='ytdl_options_overrides are disabled')
+
+    limit = req.playlist_item_limit if req.playlist_item_limit is not None else config.DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT
+
     log.info(
         "Add download request: type=%s quality=%s format=%s has_folder=%s auto_start=%s",
-        o['download_type'],
-        o['quality'],
-        o['format'],
-        bool(o.get('folder')),
-        o['auto_start'],
+        req.download_type, req.quality, req.format, bool(req.folder), req.auto_start,
     )
     status = await dqueue.add(
-        o['url'],
-        o['download_type'],
-        o['codec'],
-        o['format'],
-        o['quality'],
-        o['folder'],
-        o['custom_name_prefix'],
-        o['playlist_item_limit'],
-        o['auto_start'],
-        subtitle_langs=o['subtitle_langs'],
-        ytdl_options_presets=o['ytdl_options_presets'],
-        ytdl_options_overrides=o['ytdl_options_overrides'],
+        req.url, req.download_type, req.codec, req.format, req.quality,
+        req.folder, req.custom_name_prefix, limit, req.auto_start,
+        subtitle_langs=req.subtitle_langs,
+        ytdl_options_presets=req.ytdl_options_presets,
+        ytdl_options_overrides=req.ytdl_options_overrides,
     )
-    return web.Response(text=serializer.encode(status))
+    return web.json_response(status)
 
 
 @routes.get('/presets')
 async def presets(request: web.Request) -> web.Response:
-    return web.Response(
-        text=serializer.encode({'presets': sorted(config.YTDL_OPTIONS_PRESETS.keys())}),
-        content_type='application/json',
-    )
+    return web.json_response(PresetsResponse(presets=sorted(config.YTDL_OPTIONS_PRESETS.keys())).model_dump())
+
 
 @routes.post('/delete')
 async def delete(request: web.Request) -> web.Response:
     post = await _read_json_request(request)
-    ids = post.get('ids')
-    where = post.get('where')
-    if not ids or where not in ['queue', 'done']:
-        log.error("Bad request: missing 'ids' or incorrect 'where' value")
-        raise web.HTTPBadRequest()
-    status = await (dqueue.cancel(ids) if where == 'queue' else dqueue.clear(ids))
-    log.info(f"Download delete request processed for ids: {ids}, where: {where}")
-    return web.Response(text=serializer.encode(status))
+    try:
+        req = DeleteRequest.model_validate(post)
+    except PydanticValidationError as exc:
+        raise web.HTTPBadRequest(reason=_first_validation_error(exc)) from exc
+    status = await (dqueue.cancel(req.ids) if req.where == 'queue' else dqueue.clear(req.ids))
+    log.info(f"Download delete request processed for ids: {req.ids}, where: {req.where}")
+    return web.json_response(status)
 
-COOKIES_PATH = Path(config.STATE_DIR) / 'cookies.txt'
 
 @routes.post('/cookies')
 async def upload_cookies(request: web.Request) -> web.Response:
     reader = await request.multipart()
     field = await reader.next()
     if field is None or field.name != 'cookies':
-        return web.Response(status=400, text=serializer.encode({'status': 'error', 'msg': 'No cookies file provided'}))
+        return web.json_response(StatusResponse(status='error', msg='No cookies file provided').model_dump(), status=400)
 
-    max_size = 1_000_000  # 1MB limit
+    max_size = 1_000_000
     size = 0
     content = bytearray()
     while True:
@@ -530,13 +554,12 @@ async def upload_cookies(request: web.Request) -> web.Response:
             break
         size += len(chunk)
         if size > max_size:
-            return web.Response(status=400, text=serializer.encode({'status': 'error', 'msg': 'Cookie file too large (max 1MB)'}))
+            return web.json_response(StatusResponse(status='error', msg='Cookie file too large (max 1MB)').model_dump(), status=400)
         content.extend(chunk)
 
     tmp_cookie_path = COOKIES_PATH.with_name(COOKIES_PATH.name + '.tmp')
     tmp_cookie_path.write_bytes(bytes(content))
-    # Cookies are sensitive auth material; restrict to owner read/write only
-    # (the container's default umask would otherwise leave them group/world readable).
+    # Cookies are sensitive auth material; restrict to owner read/write only.
     try:
         tmp_cookie_path.chmod(0o600)
     except OSError as exc:
@@ -544,7 +567,8 @@ async def upload_cookies(request: web.Request) -> web.Response:
     tmp_cookie_path.replace(COOKIES_PATH)
     config.set_runtime_override('cookiefile', str(COOKIES_PATH))
     log.info(f'Cookies file uploaded ({size} bytes)')
-    return web.Response(text=serializer.encode({'status': 'ok', 'msg': f'Cookies uploaded ({size} bytes)'}))
+    return web.json_response(StatusResponse(msg=f'Cookies uploaded ({size} bytes)').model_dump())
+
 
 @routes.delete('/cookies')
 async def delete_cookies(request: web.Request) -> web.Response:
@@ -554,37 +578,42 @@ async def delete_cookies(request: web.Request) -> web.Response:
 
     if not has_uploaded_cookies:
         if has_manual_cookiefile:
-            return web.Response(
+            return web.json_response(
+                StatusResponse(status='error', msg='Cookies are configured manually via YTDL_OPTIONS (cookiefile). Remove or change that setting manually; UI delete only removes uploaded cookies.').model_dump(),
                 status=400,
-                text=serializer.encode({
-                    'status': 'error',
-                    'msg': 'Cookies are configured manually via YTDL_OPTIONS (cookiefile). Remove or change that setting manually; UI delete only removes uploaded cookies.'
-                })
             )
-        return web.Response(status=400, text=serializer.encode({'status': 'error', 'msg': 'No uploaded cookies to delete'}))
+        return web.json_response(StatusResponse(status='error', msg='No uploaded cookies to delete').model_dump(), status=400)
 
     COOKIES_PATH.unlink()
     config.remove_runtime_override('cookiefile')
     success, msg = config.load_ytdl_options()
     if not success:
         log.error(f'Cookies file deleted, but failed to reload YTDL_OPTIONS: {msg}')
-        return web.Response(status=500, text=serializer.encode({'status': 'error', 'msg': f'Cookies file deleted, but failed to reload YTDL_OPTIONS: {msg}'}))
+        return web.json_response(StatusResponse(status='error', msg=f'Cookies file deleted, but failed to reload YTDL_OPTIONS: {msg}').model_dump(), status=500)
 
     log.info('Cookies file deleted')
-    return web.Response(text=serializer.encode({'status': 'ok'}))
+    return web.json_response(StatusResponse().model_dump())
+
 
 @routes.get('/cookies')
 async def cookie_status(request: web.Request) -> web.Response:
     configured_cookiefile = config.YTDL_OPTIONS.get('cookiefile')
     has_configured_cookies = isinstance(configured_cookiefile, str) and Path(configured_cookiefile).exists()
     has_uploaded_cookies = COOKIES_PATH.exists()
-    exists = has_uploaded_cookies or has_configured_cookies
-    return web.Response(text=serializer.encode({'status': 'ok', 'has_cookies': exists}))
+    return web.json_response(CookieStatusResponse(has_cookies=has_uploaded_cookies or has_configured_cookies).model_dump())
+
 
 @routes.get('/queue')
 async def queue_state(request: web.Request) -> web.Response:
-    state = dqueue.get()
-    return web.Response(text=serializer.encode(state), content_type='application/json')
+    queue, done = dqueue.get()
+    return web.Response(
+        text=json.dumps([
+            [[k, info.to_public_dict()] for k, info in queue],
+            [[k, info.to_public_dict()] for k, info in done],
+        ]),
+        content_type='application/json',
+    )
+
 
 @routes.get('/logs')
 async def get_logs(request: web.Request) -> web.Response:
@@ -597,15 +626,18 @@ async def get_logs(request: web.Request) -> web.Response:
         or dqueue.pending.dict.get(dl_id)
     )
     lines = dl.info.logs if dl is not None else []
-    return web.Response(text=serializer.encode(lines), content_type='application/json')
+    return web.Response(text=json.dumps(lines), content_type='application/json')
+
 
 @routes.get('/configuration')
 async def configuration(request: web.Request) -> web.Response:
-    return web.Response(text=serializer.encode(config.frontend_safe()), content_type='application/json')
+    return web.json_response(ConfigurationResponse(**config.frontend_safe()).model_dump())
+
 
 @routes.get('/')
 async def index(request: web.Request) -> web.Response:
     return web.FileResponse(Path(config.BASE_DIR) / 'ui/index.html')
+
 
 routes.static('/download/', config.DOWNLOAD_DIR)
 routes.static('/audio_download/', config.AUDIO_DOWNLOAD_DIR)
@@ -617,14 +649,16 @@ except ValueError as e:
         raise RuntimeError('Could not find the frontend UI static assets. Expected ui/index.html') from e
     raise e
 
+
 # https://github.com/aio-libs/aiohttp/pull/4615 waiting for release
 # @routes.options('add')
 async def add_cors(request):
-    return web.Response(text=serializer.encode({"status": "ok"}))
+    return web.json_response({'status': 'ok'})
 
 app.router.add_route('OPTIONS', '/add', add_cors)
 app.router.add_route('OPTIONS', '/cookies', add_cors)
 app.router.add_route('OPTIONS', '/logs', add_cors)
+
 
 async def on_prepare(request: web.Request, response: web.StreamResponse) -> None:
     origin = request.headers.get('Origin')

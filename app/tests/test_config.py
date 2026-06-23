@@ -152,7 +152,7 @@ class ConfigTests(unittest.TestCase):
     def test_clear_completed_after_zero_allowed(self):
         with patch.dict(os.environ, _base_env(CLEAR_COMPLETED_AFTER="0"), clear=False):
             c = Config()
-        self.assertEqual(c.CLEAR_COMPLETED_AFTER, "0")
+        self.assertEqual(c.CLEAR_COMPLETED_AFTER, 0)
 
     def test_runtime_override_roundtrip(self):
         with patch.dict(os.environ, _base_env(), clear=False):
