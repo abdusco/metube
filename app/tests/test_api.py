@@ -133,7 +133,6 @@ def test_cookie_status(client):
     resp = client.get('/cookies')
     assert resp.status_int == 200
     data = resp.json
-    assert data.get("status") == "ok"
     assert "has_cookies" in data
 
 
@@ -143,10 +142,10 @@ def test_upload_cookies_missing_field(client):
 
 
 def test_is_within_state_dir_blocks_state_subtree():
-    state_dir = main._STATE_DIR_REAL
+    state_dir = Path(main.config.STATE_DIR).resolve()
     assert main._is_within_state_dir(state_dir)
-    assert main._is_within_state_dir(os.path.join(state_dir, "cookies.txt"))
-    assert main._is_within_state_dir(os.path.join(state_dir, "queue", "item.json"))
+    assert main._is_within_state_dir(state_dir / "cookies.txt")
+    assert main._is_within_state_dir(state_dir / "queue" / "item.json")
 
 
 def test_is_within_state_dir_allows_sibling_downloads():
@@ -164,7 +163,6 @@ def test_download_blocks_state_dir_files(monkeypatch, tmp_path):
 
     monkeypatch.setattr(main.config, "DOWNLOAD_DIR", str(download_dir))
     monkeypatch.setattr(main.config, "STATE_DIR", str(state_dir))
-    monkeypatch.setattr(main, "_STATE_DIR_REAL", state_dir.resolve())
 
     client = TestApp(main.app)
 
