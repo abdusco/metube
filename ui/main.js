@@ -249,7 +249,7 @@ function app() {
 
     async _refreshCookieStatus() {
       try {
-        const resp = await fetch('cookie-status');
+        const resp = await fetch('cookies');
         if (resp.ok) {
           const data = await resp.json();
           this.hasCookies = !!data.has_cookies;
@@ -269,7 +269,7 @@ function app() {
       try {
         const fd = new FormData();
         fd.append('cookies', file);
-        await fetch('upload-cookies', { method: 'POST', body: fd });
+        await fetch('cookies', { method: 'POST', body: fd });
         await this._refreshCookieStatus();
         input.value = '';
       } finally {
@@ -285,7 +285,7 @@ function app() {
         const blob = new Blob([this.cookieText], { type: 'text/plain' });
         const fd = new FormData();
         fd.append('cookies', blob, 'cookies.txt');
-        await fetch('upload-cookies', { method: 'POST', body: fd });
+        await fetch('cookies', { method: 'POST', body: fd });
         await this._refreshCookieStatus();
         this.cookieText = '';
       } finally {
@@ -295,7 +295,7 @@ function app() {
 
     /** DELETE uploaded cookies. */
     async deleteCookies() {
-      await fetch('delete-cookies', { method: 'POST' });
+      await fetch('cookies', { method: 'DELETE' });
       await this._refreshCookieStatus();
     },
 

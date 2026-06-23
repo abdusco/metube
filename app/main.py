@@ -18,7 +18,6 @@ import re
 from urllib.parse import unquote
 
 from ytdl import DownloadQueueNotifier, DownloadQueue, Download
-from yt_dlp.version import __version__ as yt_dlp_version
 
 log = logging.getLogger('main')
 
@@ -515,12 +514,6 @@ async def presets(request: web.Request) -> web.Response:
         content_type='application/json',
     )
 
-@routes.post(config.URL_PREFIX + 'cancel-add')
-async def cancel_add(request: web.Request) -> web.Response:
-    dqueue.cancel_add()
-    return web.Response(text=serializer.encode({'status': 'ok'}), content_type='application/json')
-
-
 @routes.post(config.URL_PREFIX + 'delete')
 async def delete(request: web.Request) -> web.Response:
     post = await _read_json_request(request)
@@ -533,18 +526,9 @@ async def delete(request: web.Request) -> web.Response:
     log.info(f"Download delete request processed for ids: {ids}, where: {where}")
     return web.Response(text=serializer.encode(status))
 
-@routes.post(config.URL_PREFIX + 'start')
-async def start(request: web.Request) -> web.Response:
-    post = await _read_json_request(request)
-    ids = post.get('ids')
-    log.info(f"Received request to start pending downloads for ids: {ids}")
-    status = await dqueue.start_pending(ids)
-    return web.Response(text=serializer.encode(status))
-
-
 COOKIES_PATH = Path(config.STATE_DIR) / 'cookies.txt'
 
-@routes.post(config.URL_PREFIX + 'upload-cookies')
+@routes.post(config.URL_PREFIX + 'cookies')
 async def upload_cookies(request: web.Request) -> web.Response:
     reader = await request.multipart()
     field = await reader.next()
@@ -576,7 +560,7 @@ async def upload_cookies(request: web.Request) -> web.Response:
     log.info(f'Cookies file uploaded ({size} bytes)')
     return web.Response(text=serializer.encode({'status': 'ok', 'msg': f'Cookies uploaded ({size} bytes)'}))
 
-@routes.post(config.URL_PREFIX + 'delete-cookies')
+@routes.delete(config.URL_PREFIX + 'cookies')
 async def delete_cookies(request: web.Request) -> web.Response:
     has_uploaded_cookies = COOKIES_PATH.exists()
     configured_cookiefile = config.YTDL_OPTIONS.get('cookiefile')
@@ -603,27 +587,13 @@ async def delete_cookies(request: web.Request) -> web.Response:
     log.info('Cookies file deleted')
     return web.Response(text=serializer.encode({'status': 'ok'}))
 
-@routes.get(config.URL_PREFIX + 'cookie-status')
+@routes.get(config.URL_PREFIX + 'cookies')
 async def cookie_status(request: web.Request) -> web.Response:
     configured_cookiefile = config.YTDL_OPTIONS.get('cookiefile')
     has_configured_cookies = isinstance(configured_cookiefile, str) and Path(configured_cookiefile).exists()
     has_uploaded_cookies = COOKIES_PATH.exists()
     exists = has_uploaded_cookies or has_configured_cookies
     return web.Response(text=serializer.encode({'status': 'ok', 'has_cookies': exists}))
-
-@routes.get(config.URL_PREFIX + 'history')
-async def history(request: web.Request) -> web.Response:
-    history = { 'done': [], 'queue': [], 'pending': []}
-
-    for _, v in dqueue.queue.saved_items():
-        history['queue'].append(v)
-    for _, v in dqueue.done.saved_items():
-        history['done'].append(v)
-    for _, v in dqueue.pending.saved_items():
-        history['pending'].append(v)
-
-    log.info("Sending download history")
-    return web.Response(text=serializer.encode(history))
 
 @routes.get(config.URL_PREFIX + 'queue')
 async def queue_state(request: web.Request) -> web.Response:
@@ -664,13 +634,6 @@ async def robots(request: web.Request) -> web.Response:
         )
     return response
 
-@routes.get(config.URL_PREFIX + 'version')
-async def version(request: web.Request) -> web.Response:
-    return web.json_response({
-        "yt-dlp": yt_dlp_version,
-        "version": os.getenv("METUBE_VERSION", "dev")
-    })
-
 if config.URL_PREFIX != '/':
     @routes.get('/')
     async def index_redirect_root(request):
@@ -696,9 +659,7 @@ async def add_cors(request):
     return web.Response(text=serializer.encode({"status": "ok"}))
 
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'add', add_cors)
-app.router.add_route('OPTIONS', config.URL_PREFIX + 'cancel-add', add_cors)
-app.router.add_route('OPTIONS', config.URL_PREFIX + 'upload-cookies', add_cors)
-app.router.add_route('OPTIONS', config.URL_PREFIX + 'delete-cookies', add_cors)
+app.router.add_route('OPTIONS', config.URL_PREFIX + 'cookies', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'logs', add_cors)
 
 async def on_prepare(request: web.Request, response: web.StreamResponse) -> None:
