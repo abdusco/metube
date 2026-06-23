@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shelve
 import sys
 import tempfile
 import types
@@ -61,12 +60,6 @@ def _make_info(url: str = "https://example.com/v") -> DownloadInfo:
     )
 
 
-def _create_legacy_shelf(path: str, *infos: DownloadInfo) -> None:
-    with shelve.open(path, "c") as shelf:
-        for info in infos:
-            shelf[info.url] = info
-
-
 class PersistentQueueTests(unittest.TestCase):
     def test_put_get_delete_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -103,15 +96,6 @@ class PersistentQueueTests(unittest.TestCase):
             pq2 = PersistentQueue("queue", path)
             pq2.load()
             self.assertTrue(pq2.exists("http://load.example"))
-
-    def test_load_imports_legacy_shelve(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "queue")
-            _create_legacy_shelf(path, _make_info("http://legacy.example"))
-            pq = PersistentQueue("queue", path)
-            pq.load()
-            self.assertTrue(pq.exists("http://legacy.example"))
-            self.assertTrue(os.path.exists(path + ".json"))
 
     def test_queue_persists_only_compact_entry_subset(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -170,21 +154,6 @@ class PersistentQueueTests(unittest.TestCase):
             self.assertNotIn("speed", record)
             self.assertNotIn("eta", record)
             self.assertEqual(record["filename"], "done.mp4")
-
-    def test_invalid_json_is_quarantined_and_legacy_is_imported(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "queue")
-            _create_legacy_shelf(path, _make_info("http://legacy.example"))
-            with open(path + ".json", "w", encoding="utf-8") as f:
-                f.write("{not valid json")
-
-            pq = PersistentQueue("queue", path)
-            pq.load()
-
-            self.assertTrue(pq.exists("http://legacy.example"))
-            self.assertTrue(
-                any(name.startswith("queue.json.invalid.") for name in os.listdir(tmp))
-            )
 
     def test_loading_old_json_rewrites_to_compact_format(self):
         with tempfile.TemporaryDirectory() as tmp:

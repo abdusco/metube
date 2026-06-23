@@ -18,7 +18,7 @@ from typing import Any, Optional
 import yt_dlp.networking.impersonate
 from yt_dlp.utils import STR_FORMAT_RE_TMPL, STR_FORMAT_TYPES
 from dl_formats import get_format, get_opts, AUDIO_FORMATS
-from state_store import AtomicJsonStore, from_json_compatible, read_legacy_shelf, to_json_compatible
+from state_store import AtomicJsonStore, from_json_compatible, to_json_compatible
 
 
 def _entry_id(entry: dict) -> Optional[str]:
@@ -515,7 +515,6 @@ class PersistentQueue:
         pdir = os.path.dirname(path)
         if pdir and not os.path.isdir(pdir):
             os.makedirs(pdir, exist_ok=True)
-        self.legacy_path = path
         self.path = f"{path}.json"
         self.store = AtomicJsonStore(self.path, kind=f"persistent_queue:{name}")
         self.dict = OrderedDict()
@@ -578,24 +577,7 @@ class PersistentQueue:
                     self.store.save({"items": compact_items})
                 return compact_items
             log.warning("PersistentQueue:%s state file did not contain an items list", self.identifier)
-            return []
-
-        legacy_items = read_legacy_shelf(self.legacy_path)
-        if legacy_items is None:
-            return []
-
-        items = [
-            {
-                "key": key,
-                "info": _download_info_to_record(
-                    value,
-                    include_entry=self._should_persist_entry(),
-                ),
-            }
-            for key, value in sorted(legacy_items, key=lambda item: item[1].timestamp)
-        ]
-        self.store.save({"items": items})
-        return items
+        return []
 
     def put(self, value):
         key = value.info.url

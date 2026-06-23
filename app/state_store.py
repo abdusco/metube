@@ -5,7 +5,6 @@ import collections.abc
 import json
 import logging
 import os
-import shelve
 import tempfile
 import time
 from datetime import datetime
@@ -44,17 +43,6 @@ def from_json_compatible(value: Any) -> Any:
             return datetime.fromisoformat(value[_DATETIME_MARKER])
         return {k: from_json_compatible(v) for k, v in value.items()}
     return value
-
-
-def read_legacy_shelf(path: str) -> Optional[list[tuple[Any, Any]]]:
-    if not os.path.exists(path):
-        return None
-    try:
-        with shelve.open(path, "r") as shelf:
-            return list(shelf.items())
-    except Exception as exc:
-        log.warning("Could not read legacy shelf at %s: %s", path, exc)
-        return None
 
 
 class AtomicJsonStore:
