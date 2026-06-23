@@ -95,10 +95,10 @@ class Config:
 
         for k, v in self.__dict__.items():
             if k in self._BOOLEAN:
-                if v not in ('true', 'false', 'True', 'False', 'on', 'off', '1', '0'):
+                if v not in ('true', 'false', 'True', 'False', '1', '0'):
                     log.error(f'Environment variable "{k}" is set to a non-boolean value "{v}"')
                     sys.exit(1)
-                setattr(self, k, v in ('true', 'True', 'on', '1'))
+                setattr(self, k, v in ('true', 'True', '1'))
 
         if not self.URL_PREFIX.endswith('/'):
             self.URL_PREFIX += '/'
