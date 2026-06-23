@@ -76,10 +76,6 @@ class AddRequestTests(unittest.TestCase):
         req = main.AddRequest.model_validate({**self._base, "ytdl_options_overrides": ""})
         self.assertEqual(req.ytdl_options_overrides, {})
 
-    def test_legacy_singular_preset_normalized(self):
-        req = main.AddRequest.model_validate({**self._base, "ytdl_options_preset": "Solo"})
-        self.assertEqual(req.ytdl_options_presets, ["Solo"])
-
     def test_multiple_presets_list(self):
         req = main.AddRequest.model_validate({**self._base, "ytdl_options_presets": ["A", "B"]})
         self.assertEqual(req.ytdl_options_presets, ["A", "B"])

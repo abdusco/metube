@@ -10,11 +10,35 @@ from unittest.mock import patch
 
 from main import Config
 
+_BASE_ENV: dict[str, str] = {
+    'DOWNLOAD_DIR': '.',
+    'AUDIO_DOWNLOAD_DIR': '',
+    'TEMP_DIR': '',
+    'DELETE_FILE_ON_TRASHCAN': 'false',
+    'STATE_DIR': '.',
+    'PUBLIC_HOST_URL': 'download/',
+    'PUBLIC_HOST_AUDIO_URL': 'audio_download/',
+    'OUTPUT_TEMPLATE': '%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s',
+    'OUTPUT_TEMPLATE_PLAYLIST': '%(playlist_title)s/%(title)s.%(ext)s',
+    'OUTPUT_TEMPLATE_CHANNEL': '%(channel)s/%(title)s.%(ext)s',
+    'DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT': '0',
+    'CLEAR_COMPLETED_AFTER': '0',
+    'YTDL_OPTIONS': '{}',
+    'YTDL_OPTIONS_FILE': '',
+    'YTDL_OPTIONS_PRESETS': '{}',
+    'ALLOW_YTDL_OPTIONS_OVERRIDES': 'false',
+    'CORS_ALLOWED_ORIGINS': '',
+    'HOST': '0.0.0.0',
+    'PORT': '8081',
+    'BASE_DIR': '',
+    'MAX_CONCURRENT_DOWNLOADS': '3',
+    'LOGLEVEL': 'INFO',
+    'YTDL_NIGHTLY_UPDATE_TIME': '',
+}
+
 
 def _base_env(**overrides: str) -> dict[str, str]:
-    env = {k: str(v) for k, v in Config._DEFAULTS.items()}
-    env.update(overrides)
-    return env
+    return {**_BASE_ENV, **overrides}
 
 
 class ConfigTests(unittest.TestCase):

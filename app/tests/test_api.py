@@ -82,18 +82,6 @@ async def test_add_passes_preset_and_overrides(mock_dqueue, monkeypatch):
     assert call.kwargs["ytdl_options_overrides"] == {"writesubtitles": True}
 
 
-@pytest.mark.asyncio
-async def test_add_legacy_string_preset_normalized(mock_dqueue, monkeypatch):
-    monkeypatch.setattr(main.config, "YTDL_OPTIONS_PRESETS", {"Legacy": {}})
-    body = _valid_video_add_body()
-    del body["ytdl_options_presets"]
-    body["ytdl_options_preset"] = "Legacy"
-    req = _json_request(body)
-    resp = await main.add(req)
-    assert resp.status == 200
-    call = mock_dqueue.add.await_args
-    assert call.kwargs["ytdl_options_presets"] == ["Legacy"]
-
 
 @pytest.mark.asyncio
 async def test_add_missing_url_returns_400(mock_dqueue):

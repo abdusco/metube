@@ -89,33 +89,6 @@ class Config(BaseSettings):
     _runtime_overrides: dict[str, Any] = PrivateAttr(default_factory=dict)
     _ytdl_options_base: dict[str, Any] = PrivateAttr(default_factory=dict)
 
-    # String-form defaults kept for the test helper (mirrors field defaults as env var strings).
-    _DEFAULTS: ClassVar[dict[str, str]] = {
-        'DOWNLOAD_DIR': '.',
-        'AUDIO_DOWNLOAD_DIR': '',
-        'TEMP_DIR': '',
-        'DELETE_FILE_ON_TRASHCAN': 'false',
-        'STATE_DIR': '.',
-        'PUBLIC_HOST_URL': 'download/',
-        'PUBLIC_HOST_AUDIO_URL': 'audio_download/',
-        'OUTPUT_TEMPLATE': '%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s',
-        'OUTPUT_TEMPLATE_PLAYLIST': '%(playlist_title)s/%(title)s.%(ext)s',
-        'OUTPUT_TEMPLATE_CHANNEL': '%(channel)s/%(title)s.%(ext)s',
-        'DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT': '0',
-        'CLEAR_COMPLETED_AFTER': '0',
-        'YTDL_OPTIONS': '{}',
-        'YTDL_OPTIONS_FILE': '',
-        'YTDL_OPTIONS_PRESETS': '{}',
-        'ALLOW_YTDL_OPTIONS_OVERRIDES': 'false',
-        'CORS_ALLOWED_ORIGINS': '',
-        'HOST': '0.0.0.0',
-        'PORT': '8081',
-        'BASE_DIR': '',
-        'MAX_CONCURRENT_DOWNLOADS': '3',
-        'LOGLEVEL': 'INFO',
-        'YTDL_NIGHTLY_UPDATE_TIME': '',
-    }
-
     _FRONTEND_KEYS: ClassVar[tuple[str, ...]] = (
         'PUBLIC_HOST_URL',
         'PUBLIC_HOST_AUDIO_URL',
@@ -251,17 +224,6 @@ class AddRequest(BaseModel):
     ytdl_options_presets: list[str] = Field(default_factory=list)
     ytdl_options_overrides: dict[str, Any] = Field(default_factory=dict)
 
-    @model_validator(mode='before')
-    @classmethod
-    def _normalize_legacy_preset(cls, data: dict) -> dict:
-        if 'ytdl_options_preset' in data and 'ytdl_options_presets' not in data:
-            raw = data.pop('ytdl_options_preset')
-            if isinstance(raw, str) and raw.strip():
-                data['ytdl_options_presets'] = [raw.strip()]
-            elif isinstance(raw, list):
-                data['ytdl_options_presets'] = [str(x).strip() for x in raw if str(x).strip()]
-        return data
-
     @field_validator('url')
     @classmethod
     def _nonempty_url(cls, v: str) -> str:
@@ -290,13 +252,6 @@ class AddRequest(BaseModel):
     def _no_traversal(cls, v: str) -> str:
         if v and ('..' in v or v.startswith('/') or v.startswith('\\')):
             raise ValueError('must not contain ".." or start with a path separator')
-        return v
-
-    @field_validator('subtitle_langs', mode='before')
-    @classmethod
-    def _normalize_langs(cls, v: Any) -> list[str]:
-        if isinstance(v, str):
-            return [lang.strip() for lang in v.split(',') if lang.strip()]
         return v
 
     @field_validator('subtitle_langs')
