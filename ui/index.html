@@ -183,7 +183,7 @@
               </div>
               <div class="dl-actions">
                 <button class="btn-icon" :class="{ active: openLogsId === dl.id }" @click="toggleLogs(dl.id)" title="Logs">≡</button>
-                <button class="btn-icon danger" @click="deleteDownload(dl.id, 'queue')" title="Remove">✕</button>
+                <button class="btn-icon danger" @click="cancelDownload(dl.id)" title="Cancel">✕</button>
               </div>
             </div>
 
@@ -191,15 +191,15 @@
               <div
                 class="progress-bar"
                 :class="dl.status"
-                :style="`width: ${dl.status === 'downloading' ? (dl.percent || 0) : 100}%`"
+                :style="`width: ${dl.status === 'running' ? (dl.percent || 0) : 100}%`"
               ></div>
             </div>
 
             <div class="dl-meta">
-              <span x-show="dl.status === 'downloading'" x-text="`${(dl.percent || 0).toFixed(1)}%`"></span>
+              <span x-show="dl.status === 'running'" x-text="`${(dl.percent || 0).toFixed(1)}%`"></span>
               <span x-show="dl.speed"   x-text="formatSpeed(dl.speed)"></span>
               <span x-show="dl.eta"     x-text="`ETA ${formatEta(dl.eta)}`"></span>
-              <span x-show="dl.status !== 'downloading'" x-text="dl.status"></span>
+              <span x-show="dl.status !== 'running'" x-text="dl.status"></span>
               <span x-text="badge(dl)" style="margin-left:auto; opacity:.7"></span>
             </div>
 
@@ -216,6 +216,9 @@
   <template x-if="done.length > 0">
     <div>
       <div class="section-heading">Completed</div>
+      <div style="margin:0 0 10px 0; display:flex; justify-content:flex-end">
+        <button class="btn btn-danger btn-sm" @click="clearCompletedJobs()">Clear all</button>
+      </div>
       <div class="dl-list">
         <template x-for="dl in done" :key="dl.id">
           <div class="dl-item">
@@ -248,14 +251,14 @@
                   title="Retry"
                 >↺</button>
                 <button class="btn-icon" :class="{ active: openLogsId === dl.id }" @click="toggleLogs(dl.id)" title="Logs">≡</button>
-                <button class="btn-icon danger" @click="deleteDownload(dl.id, 'done')" title="Remove">✕</button>
+                <button class="btn-icon danger" @click="clearCompletedJobs()" title="Clear all">✕</button>
               </div>
             </div>
 
             <div class="dl-meta">
               <span x-text="badge(dl)"></span>
               <span x-show="dl.size" x-text="formatBytes(dl.size)"></span>
-              <span x-show="dl.timestamp" x-text="formatTime(dl.timestamp)"></span>
+              <span x-show="dl.finished_at || dl.created_at" x-text="formatTime(dl.finished_at || dl.created_at)"></span>
               <a :href="dl.url" target="_blank" rel="noopener" class="source-link">source</a>
             </div>
 

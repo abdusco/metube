@@ -1,8 +1,8 @@
 /**
- * @typedef {'downloading'|'preparing'|'pending'|'scheduled'|'finished'|'error'} DownloadStatus
+ * @typedef {'queued'|'running'|'finished'|'error'|'canceled'} DownloadStatus
  *
  * @typedef {object} Download
- * @property {string}         id            - queue key (url-derived)
+ * @property {string}         id
  * @property {string}         title
  * @property {string}         url
  * @property {'video'|'audio'} download_type
@@ -10,13 +10,16 @@
  * @property {string}         format        - mp4 | any | m4a | mp3 | …
  * @property {string}         quality       - best | 1080 | 720 | …
  * @property {DownloadStatus} status
- * @property {string|null}    msg
+ * @property {string|null}    message
  * @property {number|null}    percent       - 0–100
  * @property {number|null}    speed         - bytes/s
  * @property {number|null}    eta           - seconds
  * @property {string|null}    filename
  * @property {number|null}    size          - bytes
- * @property {number|null}    timestamp     - nanoseconds since epoch
+ * @property {string}         created_at    - ISO 8601 datetime
+ * @property {string}         updated_at    - ISO 8601 datetime
+ * @property {string|null}    started_at    - ISO 8601 datetime
+ * @property {string|null}    finished_at   - ISO 8601 datetime
  * @property {string|null}    error
  * @property {Array<{filename:string,size:number}>} [subtitle_files]
  * @property {string[]}       [subtitle_langs]
@@ -108,11 +111,11 @@ function app() {
       if (this._polling) return;
       this._polling = true;
       try {
-        const resp = await fetch('queue');
+        const resp = await fetch('jobs');
         if (!resp.ok) return;
-        const [q, d] = await resp.json();
-        this.queue = q.map(([id, dl]) => ({ ...dl, id })).reverse();
-        this.done  = d.map(([id, dl]) => ({ ...dl, id })).reverse();
+        const data = await resp.json();
+        this.queue = (data.queued || []).slice().reverse();
+        this.done  = (data.done || []).slice().reverse();
       } catch { /* network blip – keep previous state */ } finally {
         this._polling = false;
       }
@@ -133,7 +136,7 @@ function app() {
     //  Downloads
     // ══════════════════════════════════════════════════════════════════════════
 
-    /** POST /add with current form state. */
+    /** POST /jobs with current form state. */
     async addDownload() {
       if (!this.url.trim()) return;
       const { langs, error: langsError } = this._parseSubtitleLangs();
@@ -141,7 +144,7 @@ function app() {
       this.adding = true;
       this.error  = null;
       try {
-        const resp = await fetch('add', {
+        const resp = await fetch('jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -158,7 +161,7 @@ function app() {
           this.url = '';
           await this.pollState();
         } else {
-          this.error = data.msg || 'Failed to add download';
+          this.error = data.message || 'Failed to add download';
         }
       } catch (e) {
         this.error = String(e);
@@ -168,15 +171,20 @@ function app() {
     },
 
     /**
-     * Delete a download entry.
+     * Cancel a queued/running download.
      * @param {string} id
-     * @param {'queue'|'done'} where
      */
-    async deleteDownload(id, where) {
-      await fetch('delete', {
-        method:  'POST',
+    async cancelDownload(id) {
+      await fetch(`jobs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      await this.pollState();
+    },
+
+    /** Clear all completed downloads. */
+    async clearCompletedJobs() {
+      await fetch('jobs/clear', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ ids: [id], where }),
+        body: JSON.stringify({}),
       });
       await this.pollState();
     },
@@ -186,7 +194,7 @@ function app() {
      * @param {Download} dl
      */
     async retryDownload(dl) {
-      await fetch('add', {
+      await fetch('jobs', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
@@ -198,7 +206,7 @@ function app() {
           subtitle_langs:       dl.subtitle_langs || [],
         }),
       });
-      await this.deleteDownload(dl.id, 'done');
+      await this.clearCompletedJobs();
     },
 
     /**
@@ -333,8 +341,8 @@ function app() {
     //  Computed helpers
     // ══════════════════════════════════════════════════════════════════════════
 
-    get activeCount()  { return this.queue.filter(d => d.status === 'downloading').length; },
-    get queuedCount()  { return this.queue.filter(d => ['pending', 'preparing'].includes(d.status)).length; },
+    get activeCount()  { return this.queue.filter(d => d.status === 'running').length; },
+    get queuedCount()  { return this.queue.filter(d => d.status === 'queued').length; },
     get doneCount()    { return this.done.filter(d => d.status === 'finished').length; },
     get failedCount()  { return this.done.filter(d => d.status === 'error').length; },
 
@@ -406,13 +414,15 @@ function app() {
     },
 
     /**
-     * Format a nanosecond timestamp as a locale time string.
-     * @param {number|null} ns
+     * Format an ISO datetime string as a locale time string.
+     * @param {string|null} iso
      * @returns {string}
      */
-    formatTime(ns) {
-      if (!ns) return '';
-      return new Date(ns / 1e6).toLocaleString();
+    formatTime(iso) {
+      if (!iso) return '';
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return '';
+      return date.toLocaleString();
     },
 
     /**

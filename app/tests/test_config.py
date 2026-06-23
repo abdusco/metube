@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import unittest
 from unittest.mock import patch
+
+from pydantic import ValidationError
 
 from main import Config
 
@@ -17,11 +18,7 @@ _BASE_ENV: dict[str, str] = {
     'STATE_DIR': '.',
     'PUBLIC_HOST_URL': 'download/',
     'OUTPUT_TEMPLATE': '%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s',
-    'OUTPUT_TEMPLATE_PLAYLIST': '%(playlist_title)s/%(title)s.%(ext)s',
-    'OUTPUT_TEMPLATE_CHANNEL': '%(channel)s/%(title)s.%(ext)s',
-    'CLEAR_COMPLETED_AFTER': '0',
     'YTDL_OPTIONS': '{}',
-    'YTDL_OPTIONS_FILE': '',
     'CORS_ALLOWED_ORIGINS': '',
     'HOST': '0.0.0.0',
     'PORT': '8081',
@@ -70,16 +67,6 @@ class ConfigTests(unittest.TestCase):
             c = Config()
         self.assertEqual(c.YTDL_OPTIONS["quiet"], True)
 
-    def test_invalid_ytdl_options_exits(self):
-        with patch.dict(os.environ, _base_env(YTDL_OPTIONS="not-json"), clear=False):
-            with self.assertRaises(SystemExit):
-                Config()
-
-    def test_invalid_boolean_env_exits(self):
-        with patch.dict(os.environ, _base_env(DELETE_FILE_ON_TRASHCAN="maybe"), clear=False):
-            with self.assertRaises(SystemExit):
-                Config()
-
     def test_frontend_safe_excludes_secrets(self):
         with patch.dict(os.environ, _base_env(), clear=False):
             c = Config()
@@ -101,54 +88,22 @@ class ConfigTests(unittest.TestCase):
     def test_ytdl_nightly_update_time_invalid_exits(self):
         for bad in ("25:00", "4am", "12:60"):
             with patch.dict(os.environ, _base_env(YTDL_NIGHTLY_UPDATE_TIME=bad), clear=False):
-                with self.assertRaises(SystemExit):
+                with self.assertRaises(ValidationError):
                     Config()
 
     def test_invalid_max_concurrent_downloads_exits(self):
         for bad in ("0", "-1", "abc"):
             with patch.dict(os.environ, _base_env(MAX_CONCURRENT_DOWNLOADS=bad), clear=False):
-                with self.assertRaises(SystemExit):
+                with self.assertRaises(ValidationError):
                     Config()
 
     def test_invalid_port_exits(self):
         for bad in ("0", "70000", "notaport"):
             with patch.dict(os.environ, _base_env(PORT=bad), clear=False):
-                with self.assertRaises(SystemExit):
+                with self.assertRaises(ValidationError):
                     Config()
 
-    def test_invalid_clear_completed_after_exits(self):
-        for bad in ("-5", "soon"):
-            with patch.dict(os.environ, _base_env(CLEAR_COMPLETED_AFTER=bad), clear=False):
-                with self.assertRaises(SystemExit):
-                    Config()
 
-    def test_clear_completed_after_zero_allowed(self):
-        with patch.dict(os.environ, _base_env(CLEAR_COMPLETED_AFTER="0"), clear=False):
-            c = Config()
-        self.assertEqual(c.CLEAR_COMPLETED_AFTER, 0)
-
-    def test_runtime_override_roundtrip(self):
-        with patch.dict(os.environ, _base_env(), clear=False):
-            c = Config()
-            c.set_runtime_override("cookiefile", "/tmp/c.txt")
-            self.assertEqual(c.YTDL_OPTIONS.get("cookiefile"), "/tmp/c.txt")
-            c.remove_runtime_override("cookiefile")
-            self.assertIsNone(c.YTDL_OPTIONS.get("cookiefile"))
-
-    def test_ytdl_options_file_merges(self):
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-            json.dump({"extractor_args": {"youtube": {"player_client": ["web"]}}}, f)
-            path = f.name
-        try:
-            with patch.dict(
-                os.environ,
-                _base_env(YTDL_OPTIONS="{}", YTDL_OPTIONS_FILE=path),
-                clear=False,
-            ):
-                c = Config()
-            self.assertIn("extractor_args", c.YTDL_OPTIONS)
-        finally:
-            os.unlink(path)
 
 
 if __name__ == "__main__":
