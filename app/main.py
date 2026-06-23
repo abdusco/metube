@@ -66,7 +66,6 @@ class Config:
         'YTDL_OPTIONS': '{}',
         'YTDL_OPTIONS_FILE': '',
         'YTDL_OPTIONS_PRESETS': '{}',
-        'YTDL_OPTIONS_PRESETS_FILE': '',
         'ALLOW_YTDL_OPTIONS_OVERRIDES': 'false',
         'CORS_ALLOWED_ORIGINS': '',
         'ROBOTS_TXT': '',
@@ -116,9 +115,6 @@ class Config:
         # Convert relative addresses to absolute addresses to prevent the failure of file address comparison
         if self.YTDL_OPTIONS_FILE and self.YTDL_OPTIONS_FILE.startswith('.'):
             self.YTDL_OPTIONS_FILE = str(Path(self.YTDL_OPTIONS_FILE).resolve())
-        if self.YTDL_OPTIONS_PRESETS_FILE and self.YTDL_OPTIONS_PRESETS_FILE.startswith('.'):
-            self.YTDL_OPTIONS_PRESETS_FILE = str(Path(self.YTDL_OPTIONS_PRESETS_FILE).resolve())
-
         if self.YTDL_NIGHTLY_UPDATE_TIME and not _NIGHTLY_TIME_RE.match(self.YTDL_NIGHTLY_UPDATE_TIME):
             log.error(
                 'Environment variable "YTDL_NIGHTLY_UPDATE_TIME" must be HH:MM (24-hour), got "%s"',
@@ -222,25 +218,6 @@ class Config:
             log.error(msg)
             return (False, msg)
 
-        if not self.YTDL_OPTIONS_PRESETS_FILE:
-            return (True, '')
-
-        log.info(f'Loading yt-dlp option presets from "{self.YTDL_OPTIONS_PRESETS_FILE}"')
-        if not os.path.exists(self.YTDL_OPTIONS_PRESETS_FILE):
-            msg = f'File "{self.YTDL_OPTIONS_PRESETS_FILE}" not found'
-            log.error(msg)
-            return (False, msg)
-        try:
-            with open(self.YTDL_OPTIONS_PRESETS_FILE) as json_data:
-                opts = json.load(json_data)
-            assert isinstance(opts, dict)
-            assert all(isinstance(name, str) and isinstance(options, dict) for name, options in opts.items())
-        except (json.decoder.JSONDecodeError, AssertionError):
-            msg = 'YTDL_OPTIONS_PRESETS_FILE contents is invalid'
-            log.error(msg)
-            return (False, msg)
-
-        self.YTDL_OPTIONS_PRESETS.update(opts)
         return (True, '')
 
 config = Config()

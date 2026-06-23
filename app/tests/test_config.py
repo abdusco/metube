@@ -182,21 +182,6 @@ class ConfigTests(unittest.TestCase):
         finally:
             os.unlink(path)
 
-    def test_ytdl_option_presets_file_merges(self):
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-            json.dump({"With subtitles": {"writesubtitles": True}}, f)
-            path = f.name
-        try:
-            with patch.dict(
-                os.environ,
-                _base_env(YTDL_OPTIONS_PRESETS="{}", YTDL_OPTIONS_PRESETS_FILE=path),
-                clear=False,
-            ):
-                c = Config()
-            self.assertIn("With subtitles", c.YTDL_OPTIONS_PRESETS)
-        finally:
-            os.unlink(path)
-
 
 if __name__ == "__main__":
     unittest.main()

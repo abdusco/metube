@@ -142,12 +142,9 @@ The file is loaded on startup. If you use both methods and they define the same 
 
 Presets let you define named bundles of options that appear in the web UI under **Advanced Options** as "Option Presets". Users can select one or more presets per download, making it easy to apply common option combinations without editing global settings.
 
-Like global options, presets can be set inline or via a file:
+Presets are configured via:
 
 * `YTDL_OPTIONS_PRESETS` — a JSON object where each key is a preset name and its value is a set of yt-dlp options.
-* `YTDL_OPTIONS_PRESETS_FILE` — path to a JSON file containing presets, loaded on startup.
-
-If both are used and they define a preset with the same name, the **file's version takes precedence**.
 
 **Example** — a presets file defining three presets:
 
