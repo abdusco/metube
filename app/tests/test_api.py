@@ -1,36 +1,31 @@
-"""HTTP handler tests for ``main`` using mocked ``web.Request`` (no TestServer)."""
+"""HTTP handler tests for ``main`` using webtest (WSGI, no async)."""
 
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-from aiohttp import web
-from aiohttp.test_utils import TestClient, TestServer
+from webtest import TestApp
 
 import main
 
 
 @pytest.fixture
-def mock_dqueue(monkeypatch):
+def client(monkeypatch):
     d = MagicMock()
-    d.initialize = AsyncMock(return_value=None)
-    d.add = AsyncMock(return_value={"status": "ok"})
-    d.cancel = AsyncMock(return_value={"status": "ok"})
-    d.start_pending = AsyncMock(return_value={"status": "ok"})
-    d.cancel_add = MagicMock()
+    d.add = MagicMock(return_value={"status": "ok"})
+    d.cancel = MagicMock(return_value={"status": "ok"})
+    d.clear = MagicMock(return_value={"status": "ok"})
     d.queue = MagicMock()
     d.done = MagicMock()
-    d.pending = MagicMock()
-    d.queue.saved_items = MagicMock(return_value=[])
-    d.done.saved_items = MagicMock(return_value=[])
-    d.pending.saved_items = MagicMock(return_value=[])
+    d.queue.dict = {}
+    d.done.dict = {}
     d.get = MagicMock(return_value=([], []))
     monkeypatch.setattr(main, "dqueue", d)
-    return d
+    return TestApp(main.app)
 
 
 def _valid_video_add_body(**kwargs):
@@ -47,163 +42,104 @@ def _valid_video_add_body(**kwargs):
     return base
 
 
-def _json_request(body: dict | None):
-    req = MagicMock(spec=web.Request)
-    req.json = AsyncMock(return_value=body)
-    return req
+def test_add_ok(client):
+    resp = client.post_json('/add', _valid_video_add_body())
+    assert resp.status_int == 200
+    assert resp.json['status'] == 'ok'
+    main.dqueue.add.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_add_ok(mock_dqueue):
-    req = _json_request(_valid_video_add_body())
-    resp = await main.add(req)
-    assert resp.status == 200
-    text = resp.text
-    data = json.loads(text)
-    assert data["status"] == "ok"
-    mock_dqueue.add.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_add_passes_preset_and_overrides(mock_dqueue, monkeypatch):
+def test_add_passes_preset_and_overrides(client, monkeypatch):
     monkeypatch.setattr(main.config, "YTDL_OPTIONS_PRESETS", {"Preset A": {"writesubtitles": True}})
     monkeypatch.setattr(main.config, "ALLOW_YTDL_OPTIONS_OVERRIDES", True)
-    req = _json_request(
-        _valid_video_add_body(
-            ytdl_options_presets=["Preset A"],
-            ytdl_options_overrides='{"writesubtitles": true}',
-        )
-    )
-    resp = await main.add(req)
-    assert resp.status == 200
-    call = mock_dqueue.add.await_args
-    assert call is not None
-    assert call.kwargs["ytdl_options_presets"] == ["Preset A"]
-    assert call.kwargs["ytdl_options_overrides"] == {"writesubtitles": True}
+    resp = client.post_json('/add', _valid_video_add_body(
+        ytdl_options_presets=["Preset A"],
+        ytdl_options_overrides='{"writesubtitles": true}',
+    ))
+    assert resp.status_int == 200
+    call_kwargs = main.dqueue.add.call_args.kwargs
+    assert call_kwargs["ytdl_options_presets"] == ["Preset A"]
+    assert call_kwargs["ytdl_options_overrides"] == {"writesubtitles": True}
 
 
-
-@pytest.mark.asyncio
-async def test_add_missing_url_returns_400(mock_dqueue):
-    req = _json_request({"download_type": "video", "quality": "best", "format": "any"})
-    with pytest.raises(web.HTTPBadRequest):
-        await main.add(req)
-    mock_dqueue.add.assert_not_called()
+def test_add_missing_url_returns_400(client):
+    resp = client.post_json('/add', {"download_type": "video", "quality": "best", "format": "any"}, expect_errors=True)
+    assert resp.status_int == 400
+    main.dqueue.add.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_add_invalid_download_type(mock_dqueue):
-    req = _json_request(_valid_video_add_body(download_type="invalid"))
-    with pytest.raises(web.HTTPBadRequest):
-        await main.add(req)
+def test_add_invalid_download_type(client):
+    resp = client.post_json('/add', _valid_video_add_body(download_type="invalid"), expect_errors=True)
+    assert resp.status_int == 400
 
 
-@pytest.mark.asyncio
-async def test_add_invalid_video_quality(mock_dqueue):
-    req = _json_request(_valid_video_add_body(quality="9999"))
-    with pytest.raises(web.HTTPBadRequest):
-        await main.add(req)
+def test_add_invalid_video_quality(client):
+    resp = client.post_json('/add', _valid_video_add_body(quality="9999"), expect_errors=True)
+    assert resp.status_int == 400
 
 
-@pytest.mark.asyncio
-async def test_add_custom_name_prefix_path_traversal(mock_dqueue):
-    req = _json_request(_valid_video_add_body(custom_name_prefix="../evil"))
-    with pytest.raises(web.HTTPBadRequest):
-        await main.add(req)
+def test_add_custom_name_prefix_path_traversal(client):
+    resp = client.post_json('/add', _valid_video_add_body(custom_name_prefix="../evil"), expect_errors=True)
+    assert resp.status_int == 400
 
 
-@pytest.mark.asyncio
-async def test_add_invalid_json_body(mock_dqueue):
-    req = MagicMock(spec=web.Request)
-    req.json = AsyncMock(side_effect=json.JSONDecodeError("msg", "", 0))
-    with pytest.raises(web.HTTPBadRequest):
-        await main.add(req)
+def test_add_invalid_json_body(client):
+    resp = client.post('/add', params='not-json', content_type='application/json', expect_errors=True)
+    assert resp.status_int == 400
 
 
-@pytest.mark.asyncio
-async def test_add_invalid_ytdl_options_override_json(mock_dqueue):
-    req = _json_request(_valid_video_add_body(ytdl_options_overrides="{bad json}"))
-    with pytest.raises(web.HTTPBadRequest):
-        await main.add(req)
+def test_add_invalid_ytdl_options_override_json(client):
+    resp = client.post_json('/add', _valid_video_add_body(ytdl_options_overrides="{bad json}"), expect_errors=True)
+    assert resp.status_int == 400
 
 
-@pytest.mark.asyncio
-async def test_add_rejects_ytdl_options_overrides_when_disabled(mock_dqueue):
-    req = _json_request(_valid_video_add_body(ytdl_options_overrides='{"exec": "rm -rf /"}'))
-    with pytest.raises(web.HTTPBadRequest):
-        await main.add(req)
+def test_add_rejects_ytdl_options_overrides_when_disabled(client):
+    resp = client.post_json('/add', _valid_video_add_body(ytdl_options_overrides='{"exec": "rm -rf /"}'), expect_errors=True)
+    assert resp.status_int == 400
 
 
-@pytest.mark.asyncio
-async def test_add_allows_any_ytdl_options_override_key_when_enabled(mock_dqueue, monkeypatch):
+def test_add_allows_any_ytdl_options_override_key_when_enabled(client, monkeypatch):
     monkeypatch.setattr(main.config, "ALLOW_YTDL_OPTIONS_OVERRIDES", True)
-    req = _json_request(_valid_video_add_body(ytdl_options_overrides='{"exec": "echo hi"}'))
-    resp = await main.add(req)
-    assert resp.status == 200
-    call = mock_dqueue.add.await_args
-    assert call is not None
-    assert call.kwargs["ytdl_options_overrides"] == {"exec": "echo hi"}
+    resp = client.post_json('/add', _valid_video_add_body(ytdl_options_overrides='{"exec": "echo hi"}'))
+    assert resp.status_int == 200
+    call_kwargs = main.dqueue.add.call_args.kwargs
+    assert call_kwargs["ytdl_options_overrides"] == {"exec": "echo hi"}
 
 
-@pytest.mark.asyncio
-async def test_add_unknown_ytdl_preset(mock_dqueue):
-    req = _json_request(_valid_video_add_body(ytdl_options_presets=["Missing"]))
-    with pytest.raises(web.HTTPBadRequest):
-        await main.add(req)
+def test_add_unknown_ytdl_preset(client):
+    resp = client.post_json('/add', _valid_video_add_body(ytdl_options_presets=["Missing"]), expect_errors=True)
+    assert resp.status_int == 400
 
 
-@pytest.mark.asyncio
-async def test_delete_missing_ids(mock_dqueue):
-    req = _json_request({"where": "queue"})
-    with pytest.raises(web.HTTPBadRequest):
-        await main.delete(req)
+def test_delete_missing_ids(client):
+    resp = client.post_json('/delete', {"where": "queue"}, expect_errors=True)
+    assert resp.status_int == 400
 
 
-@pytest.mark.asyncio
-async def test_delete_queue_calls_cancel(mock_dqueue):
-    req = _json_request({"where": "queue", "ids": ["http://x"]})
-    resp = await main.delete(req)
-    assert resp.status == 200
-    mock_dqueue.cancel.assert_awaited_once_with(["http://x"])
+def test_delete_queue_calls_cancel(client):
+    resp = client.post_json('/delete', {"where": "queue", "ids": ["http://x"]})
+    assert resp.status_int == 200
+    main.dqueue.cancel.assert_called_once_with(["http://x"])
 
 
-
-@pytest.mark.asyncio
-async def test_presets_endpoint_returns_names(mock_dqueue, monkeypatch):
+def test_presets_endpoint_returns_names(client, monkeypatch):
     monkeypatch.setattr(main.config, "YTDL_OPTIONS_PRESETS", {"Preset B": {}, "Preset A": {}})
-    req = MagicMock(spec=web.Request)
-    resp = await main.presets(req)
-    assert resp.status == 200
-    assert json.loads(resp.text) == {"presets": ["Preset A", "Preset B"]}
+    resp = client.get('/presets')
+    assert resp.status_int == 200
+    assert resp.json == {"presets": ["Preset A", "Preset B"]}
 
 
-@pytest.mark.asyncio
-async def test_cookie_status(mock_dqueue):
-    req = MagicMock(spec=web.Request)
-    resp = await main.cookie_status(req)
-    assert resp.status == 200
-    data = json.loads(resp.text)
+def test_cookie_status(client):
+    resp = client.get('/cookies')
+    assert resp.status_int == 200
+    data = resp.json
     assert data.get("status") == "ok"
     assert "has_cookies" in data
 
 
-@pytest.mark.asyncio
-async def test_options_add_cors(mock_dqueue):
-    req = MagicMock(spec=web.Request)
-    resp = await main.add_cors(req)
-    assert resp.status == 200
-
-
-@pytest.mark.asyncio
-async def test_upload_cookies_missing_field(mock_dqueue):
-    req = MagicMock(spec=web.Request)
-    reader = MagicMock()
-    field = MagicMock()
-    field.name = "wrongname"
-    reader.next = AsyncMock(side_effect=[field, None])
-    req.multipart = AsyncMock(return_value=reader)
-    resp = await main.upload_cookies(req)
-    assert resp.status == 400
+def test_upload_cookies_missing_field(client):
+    resp = client.post('/cookies', expect_errors=True)
+    assert resp.status_int == 400
 
 
 def test_is_within_state_dir_blocks_state_subtree():
@@ -219,26 +155,22 @@ def test_is_within_state_dir_allows_sibling_downloads():
     assert not main._is_within_state_dir("/tmp/unrelated/video.mp4")
 
 
-@pytest.mark.asyncio
-async def test_download_blocks_state_dir_files(monkeypatch):
-    download_dir = Path(main.config.DOWNLOAD_DIR)
+def test_download_blocks_state_dir_files(monkeypatch, tmp_path):
+    download_dir = tmp_path / "downloads"
     state_dir = download_dir / ".metube"
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "cookies.txt").write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
     (download_dir / "video.mp4").write_bytes(b"video")
 
+    monkeypatch.setattr(main.config, "DOWNLOAD_DIR", str(download_dir))
     monkeypatch.setattr(main.config, "STATE_DIR", str(state_dir))
-    monkeypatch.setattr(main, "_STATE_DIR_REAL", os.path.realpath(str(state_dir)))
+    monkeypatch.setattr(main, "_STATE_DIR_REAL", state_dir.resolve())
 
-    try:
-        async with TestClient(TestServer(main.app)) as client:
-            blocked = await client.get("/download/.metube/cookies.txt")
-            assert blocked.status == 404
+    client = TestApp(main.app)
 
-            allowed = await client.get("/download/video.mp4")
-            assert allowed.status == 200
-            assert await allowed.read() == b"video"
-    finally:
-        (state_dir / "cookies.txt").unlink(missing_ok=True)
-        (download_dir / "video.mp4").unlink(missing_ok=True)
-        state_dir.rmdir()
+    blocked = client.get("/download/.metube/cookies.txt", expect_errors=True)
+    assert blocked.status_int == 404
+
+    allowed = client.get("/download/video.mp4")
+    assert allowed.status_int == 200
+    assert allowed.body == b"video"

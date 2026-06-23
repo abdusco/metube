@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -23,23 +23,15 @@ def dq_env():
         cfg.DOWNLOAD_DIR = dl
         cfg.AUDIO_DOWNLOAD_DIR = dl
         cfg.TEMP_DIR = dl
-        cfg.MAX_CONCURRENT_DOWNLOADS = "3"
+        cfg.MAX_CONCURRENT_DOWNLOADS = 3
         cfg.YTDL_OPTIONS = {}
         cfg.YTDL_OPTIONS_PRESETS = {}
-        cfg.CLEAR_COMPLETED_AFTER = "0"
+        cfg.CLEAR_COMPLETED_AFTER = 0
         cfg.DELETE_FILE_ON_TRASHCAN = False
         cfg.OUTPUT_TEMPLATE = "%(title)s.%(ext)s"
         cfg.OUTPUT_TEMPLATE_PLAYLIST = ""
         cfg.OUTPUT_TEMPLATE_CHANNEL = ""
         yield cfg
-
-
-def test_cancel_add_increments_generation(dq_env):
-    notifier = MagicMock()
-    dq = DownloadQueue(dq_env, notifier)
-    before = dq._add_generation
-    dq.cancel_add()
-    assert dq._add_generation == before + 1
 
 
 def test_get_returns_tuple_of_lists(dq_env):
@@ -49,9 +41,8 @@ def test_get_returns_tuple_of_lists(dq_env):
     assert q == [] and done == []
 
 
-@pytest.mark.asyncio
-async def test_add_single_video_goes_to_pending_when_auto_start_false(dq_env):
-    notifier = AsyncMock()
+def test_add_single_video_queued_immediately(dq_env):
+    notifier = MagicMock()
 
     def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
         return {
@@ -63,25 +54,17 @@ async def test_add_single_video_goes_to_pending_when_auto_start_false(dq_env):
         }
 
     dq = DownloadQueue(dq_env, notifier)
-    with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract):
-        result = await dq.add(
-            "https://example.com/watch?v=1",
-            "video",
-            "auto",
-            "any",
-            "best",
-            "",
-            "",
-            0,
-            auto_start=False,
-        )
+    url = "https://example.com/watch?v=1"
+    with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract), \
+         patch('ytdl.threading.Thread') as MockThread:
+        MockThread.return_value = MagicMock()
+        result = dq.add(url, "video", "auto", "any", "best", "", "", 0)
     assert result["status"] == "ok"
-    assert dq.pending.exists("https://example.com/watch?v=1")
+    assert dq.queue.exists(url)
 
 
-@pytest.mark.asyncio
-async def test_cancel_removes_from_pending(dq_env):
-    notifier = AsyncMock()
+def test_cancel_removes_from_queue(dq_env):
+    notifier = MagicMock()
 
     def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
         return {
@@ -93,32 +76,21 @@ async def test_cancel_removes_from_pending(dq_env):
         }
 
     dq = DownloadQueue(dq_env, notifier)
-    with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract):
-        await dq.add(
-            "https://example.com/pending",
-            "video",
-            "auto",
-            "any",
-            "best",
-            "",
-            "",
-            0,
-            auto_start=False,
-        )
-    url = "https://example.com/pending"
-    await dq.cancel([url])
-    assert not dq.pending.exists(url)
-    notifier.canceled.assert_awaited()
+    url = "https://example.com/cancel-me"
+    with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract), \
+         patch('ytdl.threading.Thread') as MockThread:
+        MockThread.return_value = MagicMock()
+        dq.add(url, "video", "auto", "any", "best", "", "", 0)
+
+    dq.cancel([url])
+    assert not dq.queue.exists(url)
+    notifier.canceled.assert_called()
 
 
-@pytest.mark.asyncio
-async def test_cancel_before_start_marks_download_canceled(dq_env):
-    """Regression test for the race condition where cancel() arrives after the
-    download has been placed in the queue and ``__start_download`` has been
-    scheduled via ``asyncio.create_task`` but has not yet executed. Without the
-    fix, the pending task would run ``download.start()`` despite the user
-    cancelling, because its ``download.canceled`` guard was never flipped."""
-    notifier = AsyncMock()
+def test_cancel_before_start_marks_download_canceled(dq_env):
+    """Regression: cancel() after add() but before the thread acquires the semaphore
+    must flip canceled=True and remove from queue."""
+    notifier = MagicMock()
 
     def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
         return {
@@ -131,65 +103,21 @@ async def test_cancel_before_start_marks_download_canceled(dq_env):
 
     dq = DownloadQueue(dq_env, notifier)
     url = "https://example.com/race"
-    start_mock = AsyncMock()
     with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract), \
-         patch.object(DownloadQueue, "_DownloadQueue__start_download", start_mock):
-        await dq.add(
-            url,
-            "video",
-            "auto",
-            "any",
-            "best",
-            "",
-            "",
-            0,
-            auto_start=True,
-        )
+         patch('ytdl.threading.Thread') as MockThread:
+        MockThread.return_value = MagicMock()
+        dq.add(url, "video", "auto", "any", "best", "", "", 0)
         assert dq.queue.exists(url)
         download = dq.queue.get(url)
         assert download.canceled is False
-        await dq.cancel([url])
+        dq.cancel([url])
         assert not dq.queue.exists(url)
         assert download.canceled is True
-        notifier.canceled.assert_awaited_with(url)
+        notifier.canceled.assert_called_with(url)
 
 
-@pytest.mark.asyncio
-async def test_start_pending_moves_to_queue(dq_env):
-    notifier = AsyncMock()
-
-    def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
-        return {
-            "_type": "video",
-            "id": "vid1",
-            "title": "Test Video",
-            "url": url,
-            "webpage_url": url,
-        }
-
-    dq = DownloadQueue(dq_env, notifier)
-    with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract):
-        await dq.add(
-            "https://example.com/startme",
-            "video",
-            "auto",
-            "any",
-            "best",
-            "",
-            "",
-            0,
-            auto_start=False,
-        )
-    url = "https://example.com/startme"
-    # Starting will spawn real download — cancel immediately before worker runs much
-    with patch.object(DownloadQueue, "_DownloadQueue__start_download", AsyncMock()):
-        await dq.start_pending([url])
-    assert not dq.pending.exists(url)
-
-
-@pytest.mark.asyncio
-async def test_add_entry_queues_single_video_without_reextracting(dq_env):
-    notifier = AsyncMock()
+def test_add_entry_queues_single_video_without_reextracting(dq_env):
+    notifier = MagicMock()
     dq = DownloadQueue(dq_env, notifier)
     entry = {
         "_type": "video",
@@ -201,26 +129,17 @@ async def test_add_entry_queues_single_video_without_reextracting(dq_env):
         "playlist_title": "Playlist",
     }
 
-    with patch.object(DownloadQueue, "_DownloadQueue__extract_info", side_effect=AssertionError("should not re-extract")):
-        result = await dq.add_entry(
-            entry,
-            "video",
-            "auto",
-            "any",
-            "best",
-            "",
-            "",
-            0,
-            auto_start=False,
-        )
+    with patch.object(DownloadQueue, "_DownloadQueue__extract_info", side_effect=AssertionError("should not re-extract")), \
+         patch('ytdl.threading.Thread') as MockThread:
+        MockThread.return_value = MagicMock()
+        result = dq.add_entry(entry, "video", "auto", "any", "best", "", "", 0)
 
     assert result["status"] == "ok"
-    assert dq.pending.exists("https://example.com/watch?v=1")
+    assert dq.queue.exists("https://example.com/watch?v=1")
 
 
-@pytest.mark.asyncio
-async def test_add_merges_global_preset_and_override_options(dq_env):
-    notifier = AsyncMock()
+def test_add_merges_global_preset_and_override_options(dq_env):
+    notifier = MagicMock()
     dq_env.YTDL_OPTIONS = {"writesubtitles": False, "cookiefile": "/tmp/global.txt"}
     dq_env.YTDL_OPTIONS_PRESETS = {
         "Preset A": {"writesubtitles": True, "proxy": "http://preset-a"},
@@ -237,23 +156,18 @@ async def test_add_merges_global_preset_and_override_options(dq_env):
         }
 
     dq = DownloadQueue(dq_env, notifier)
-    with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract):
-        result = await dq.add(
-            "https://example.com/preset",
-            "video",
-            "auto",
-            "any",
-            "best",
-            "",
-            "",
-            0,
-            auto_start=False,
+    url = "https://example.com/preset"
+    with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract), \
+         patch('ytdl.threading.Thread') as MockThread:
+        MockThread.return_value = MagicMock()
+        result = dq.add(
+            url, "video", "auto", "any", "best", "", "", 0,
             ytdl_options_presets=["Preset A", "Preset B"],
             ytdl_options_overrides={"proxy": "http://override", "embed_thumbnail": True},
         )
 
     assert result["status"] == "ok"
-    queued = dq.pending.get("https://example.com/preset")
+    queued = dq.queue.get(url)
     assert queued.ytdl_opts["cookiefile"] == "/tmp/global.txt"
     assert queued.ytdl_opts["writesubtitles"] is False
     assert queued.ytdl_opts["ratelimit"] == 1000
@@ -261,8 +175,7 @@ async def test_add_merges_global_preset_and_override_options(dq_env):
     assert queued.ytdl_opts["embed_thumbnail"] is True
 
 
-@pytest.mark.asyncio
-async def test_extract_info_preset_null_download_archive_overrides_global(dq_env):
+def test_extract_info_preset_null_download_archive_overrides_global(dq_env):
     """Preset download_archive:null must apply during extract_info (global archive otherwise wins first)."""
     dq_env.YTDL_OPTIONS = {"download_archive": "/tmp/archive.txt"}
     dq_env.YTDL_OPTIONS_PRESETS = {"NoArchive": {"download_archive": None}}
@@ -282,19 +195,14 @@ async def test_extract_info_preset_null_download_archive_overrides_global(dq_env
                 "webpage_url": url,
             }
 
-    notifier = AsyncMock()
+    notifier = MagicMock()
     dq = DownloadQueue(dq_env, notifier)
-    with patch("ytdl.yt_dlp.YoutubeDL", FakeYoutubeDL):
-        result = await dq.add(
+    with patch("ytdl.yt_dlp.YoutubeDL", FakeYoutubeDL), \
+         patch('ytdl.threading.Thread') as MockThread:
+        MockThread.return_value = MagicMock()
+        result = dq.add(
             "https://example.com/archive-test",
-            "video",
-            "auto",
-            "any",
-            "best",
-            "",
-            "",
-            0,
-            auto_start=False,
+            "video", "auto", "any", "best", "", "", 0,
             ytdl_options_presets=["NoArchive"],
         )
 
@@ -306,8 +214,7 @@ async def test_extract_info_preset_null_download_archive_overrides_global(dq_env
     assert extract_params["noplaylist"] is True
 
 
-@pytest.mark.asyncio
-async def test_extract_info_metube_extract_keys_win_over_preset(dq_env):
+def test_extract_info_metube_extract_keys_win_over_preset(dq_env):
     """MeTube's flat-extract settings must not be overridden by presets."""
     dq_env.YTDL_OPTIONS = {}
     dq_env.YTDL_OPTIONS_PRESETS = {
@@ -329,19 +236,14 @@ async def test_extract_info_metube_extract_keys_win_over_preset(dq_env):
                 "webpage_url": url,
             }
 
-    notifier = AsyncMock()
+    notifier = MagicMock()
     dq = DownloadQueue(dq_env, notifier)
-    with patch("ytdl.yt_dlp.YoutubeDL", FakeYoutubeDL):
-        result = await dq.add(
+    with patch("ytdl.yt_dlp.YoutubeDL", FakeYoutubeDL), \
+         patch('ytdl.threading.Thread') as MockThread:
+        MockThread.return_value = MagicMock()
+        result = dq.add(
             "https://example.com/flat-test",
-            "video",
-            "auto",
-            "any",
-            "best",
-            "",
-            "",
-            0,
-            auto_start=False,
+            "video", "auto", "any", "best", "", "", 0,
             ytdl_options_presets=["TryOverride"],
         )
 
@@ -351,7 +253,7 @@ async def test_extract_info_metube_extract_keys_win_over_preset(dq_env):
 
 
 def test_calc_download_path_allows_subfolder(dq_env):
-    notifier = AsyncMock()
+    notifier = MagicMock()
     dq = DownloadQueue(dq_env, notifier)
     path, err = dq._DownloadQueue__calc_download_path("video", "sub/dir")
     assert err is None
@@ -359,12 +261,7 @@ def test_calc_download_path_allows_subfolder(dq_env):
 
 
 def test_calc_download_path_rejects_sibling_prefix_escape(dq_env):
-    """A folder resolving to a sibling sharing a name prefix must be rejected.
-
-    Regression test: ``startswith`` would have accepted ``../downloads-secret``
-    when the base directory is ``.../downloads``.
-    """
-    notifier = AsyncMock()
+    notifier = MagicMock()
     base = os.path.realpath(dq_env.DOWNLOAD_DIR)
     sibling = base + "-secret"
     os.makedirs(sibling, exist_ok=True)
@@ -376,7 +273,7 @@ def test_calc_download_path_rejects_sibling_prefix_escape(dq_env):
 
 
 def test_calc_download_path_rejects_parent_escape(dq_env):
-    notifier = AsyncMock()
+    notifier = MagicMock()
     dq = DownloadQueue(dq_env, notifier)
     path, err = dq._DownloadQueue__calc_download_path("video", "../../etc")
     assert path is None
@@ -401,9 +298,7 @@ def test_download_info_to_public_dict_excludes_server_only_fields():
     info.subtitle_files = [{"filename": "a.srt", "size": 10}]
     public = info.to_public_dict()
     assert "entry" not in public
-    # subtitle_files is now exposed to the frontend so users can download them
     assert public["subtitle_files"] == [{"filename": "a.srt", "size": 10}]
-    # Client-facing fields are still present.
     assert public["url"] == "https://example.com/watch?v=1"
     assert public["title"] == "Test Video"
     assert public["status"] == "pending"

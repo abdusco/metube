@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Web GUI for youtube-dl (using yt-dlp) with playlist support"
 requires-python = ">=3.13"
 dependencies = [
-    "aiohttp",
+    "bottle",
+    "waitress",
     "pydantic>=2",
     "pydantic-settings",
     "yt-dlp[default,curl-cffi,deno]",
@@ -14,12 +15,10 @@ dependencies = [
 dev = [
     "pylint",
     "pytest>=8.0",
-    "pytest-aiohttp>=1.0",
-    "pytest-asyncio>=0.24",
+    "webtest",
 ]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["app/tests"]
 pythonpath = [".", "app"]
 addopts = "-v"

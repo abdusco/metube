@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-# pylint: disable=no-member,method-hidden
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 import re
+import signal
 import sys
+import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 from urllib.parse import unquote
 
-from aiohttp import web
-from aiohttp.web import GracefulExit
+from bottle import Bottle, request, response, abort, static_file
+import waitress
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError as PydanticValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.exceptions import SettingsError
@@ -33,10 +34,6 @@ VALID_VIDEO_CODECS = frozenset({'auto', 'h264', 'h265', 'av1', 'vp9'})
 VALID_VIDEO_FORMATS = frozenset({'any', 'mp4', 'ios'})
 VALID_AUDIO_FORMATS = frozenset({'m4a', 'mp3', 'opus', 'wav', 'flac'})
 VALID_VIDEO_QUALITIES = frozenset({'best', 'worst', '2160', '1440', '1080', '720', '480', '360', '240'})
-
-
-def _request_graceful_exit() -> None:
-    raise GracefulExit()
 
 
 def seconds_until_next_daily_time(time_hhmm: str, now: datetime | None = None) -> float:
@@ -157,8 +154,6 @@ class Config(BaseSettings):
             self.AUDIO_DOWNLOAD_DIR = self.DOWNLOAD_DIR
         if not self.TEMP_DIR:
             self.TEMP_DIR = self.DOWNLOAD_DIR
-        # A blank PUBLIC_HOST_AUDIO_URL with a non-blank PUBLIC_HOST_URL would produce
-        # root-relative audio links that 404. Fall back to the audio_download/ route.
         if not self.PUBLIC_HOST_AUDIO_URL and self.PUBLIC_HOST_URL:
             self.PUBLIC_HOST_AUDIO_URL = 'audio_download/'
         for attr in ('PUBLIC_HOST_URL', 'PUBLIC_HOST_AUDIO_URL'):
@@ -193,7 +188,6 @@ class Config(BaseSettings):
         self.YTDL_OPTIONS.update(self._runtime_overrides)
 
     def load_ytdl_options(self) -> tuple[bool, str]:
-        """Reset YTDL_OPTIONS to its base state (env + file) and re-apply remaining runtime overrides."""
         self.YTDL_OPTIONS = dict(self._ytdl_options_base)
         self._apply_runtime_overrides()
         return (True, '')
@@ -337,7 +331,7 @@ class ConfigurationResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# WSGI / middleware infrastructure
+# App setup
 # ---------------------------------------------------------------------------
 
 _STATE_DIR_REAL = Path(config.STATE_DIR).resolve()
@@ -347,85 +341,25 @@ def _is_within_state_dir(target: str | Path) -> bool:
     return Path(target).is_relative_to(_STATE_DIR_REAL)
 
 
-@web.middleware
-async def state_dir_guard(request: web.Request, handler: Any) -> web.StreamResponse:
-    for prefix, base in (
-        ('/download/', config.DOWNLOAD_DIR),
-        ('/audio_download/', config.AUDIO_DOWNLOAD_DIR),
-    ):
-        if request.path.startswith(prefix):
-            rel = unquote(request.path[len(prefix):])
-            target = (Path(base) / rel).resolve()
-            if _is_within_state_dir(target):
-                raise web.HTTPNotFound()
-            break
-    return await handler(request)
-
-
-app = web.Application(middlewares=[state_dir_guard])
+app = Bottle()
 _cors_origins = [o.strip() for o in config.CORS_ALLOWED_ORIGINS.split(',') if o.strip()] if config.CORS_ALLOWED_ORIGINS else []
-routes = web.RouteTableDef()
 
 
-class Notifier(DownloadQueueNotifier):
-    async def added(self, dl):
-        log.info(f"Notifier: Download added - {dl.title}")
-
-    async def updated(self, dl):
-        log.debug(f"Notifier: Download updated - {dl.title}")
-
-    async def completed(self, dl):
-        log.info(f"Notifier: Download completed - {dl.title}")
-
-    async def canceled(self, id):
-        log.info(f"Notifier: Download canceled - {id}")
-
-    async def cleared(self, id):
-        log.info(f"Notifier: Download cleared - {id}")
+def _json(data: Any, status: int = 200) -> str:
+    if status != 200:
+        response.status = status
+    response.content_type = 'application/json'
+    return json.dumps(data)
 
 
-dqueue = DownloadQueue(config, Notifier())
-
-
-async def _download_queue_startup(app):
-    await dqueue.initialize()
-
-
-async def _shutdown_download_manager(app):
-    Download.shutdown_manager()
-
-
-app.on_startup.append(_download_queue_startup)
-app.on_cleanup.append(_shutdown_download_manager)
-
-
-async def _schedule_nightly_update() -> None:
-    global _RESTART_FOR_UPDATE
-    time_hhmm = config.YTDL_NIGHTLY_UPDATE_TIME
-    if not time_hhmm:
-        return
-    delay = seconds_until_next_daily_time(time_hhmm)
-    log.info('Next yt-dlp nightly update in %.0f seconds (at %s local time)', delay, time_hhmm)
-    await asyncio.sleep(delay)
-    log.info('Scheduled yt-dlp nightly update: requesting restart')
-    _RESTART_FOR_UPDATE = True
-    asyncio.get_running_loop().call_soon(_request_graceful_exit)
-
-
-async def _start_nightly_update_schedule(app):
-    asyncio.create_task(_schedule_nightly_update())
-
-
-app.on_startup.append(_start_nightly_update_schedule)
-
-
-async def _read_json_request(request: web.Request) -> dict:
+def _read_json() -> dict:
     try:
-        post = await request.json()
-    except json.JSONDecodeError as exc:
-        raise web.HTTPBadRequest(reason='Invalid JSON request body') from exc
+        body = request.body.read()
+        post = json.loads(body)
+    except (json.JSONDecodeError, ValueError):
+        abort(400, 'Invalid JSON request body')
     if not isinstance(post, dict):
-        raise web.HTTPBadRequest(reason='JSON request body must be an object')
+        abort(400, 'JSON request body must be an object')
     return post
 
 
@@ -435,25 +369,71 @@ def _first_validation_error(exc: PydanticValidationError) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Route handlers
+# CORS
 # ---------------------------------------------------------------------------
+
+@app.hook('after_request')
+def _add_cors_headers():
+    origin = request.headers.get('Origin', '')
+    if origin and _cors_origins and ('*' in _cors_origins or origin in _cors_origins):
+        response.set_header('Access-Control-Allow-Origin', origin)
+        response.set_header('Access-Control-Allow-Headers', 'Content-Type')
+        response.set_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+
+
+@app.route('<path:path>', method='OPTIONS')
+def _preflight(path):
+    return _json({})
+
+
+@app.route('/', method='OPTIONS')
+def _preflight_root():
+    return _json({})
+
+
+# ---------------------------------------------------------------------------
+# Notifier
+# ---------------------------------------------------------------------------
+
+class Notifier(DownloadQueueNotifier):
+    def added(self, dl):
+        log.info(f"Notifier: Download added - {dl.title}")
+
+    def updated(self, dl):
+        log.debug(f"Notifier: Download updated - {dl.title}")
+
+    def completed(self, dl):
+        log.info(f"Notifier: Download completed - {dl.title}")
+
+    def canceled(self, id):
+        log.info(f"Notifier: Download canceled - {id}")
+
+    def cleared(self, id):
+        log.info(f"Notifier: Download cleared - {id}")
+
+
+dqueue = DownloadQueue(config, Notifier())
 
 COOKIES_PATH = Path(config.STATE_DIR) / 'cookies.txt'
 
 
-@routes.post('/add')
-async def add(request: web.Request) -> web.Response:
-    post = await _read_json_request(request)
+# ---------------------------------------------------------------------------
+# Route handlers
+# ---------------------------------------------------------------------------
+
+@app.route('/add', method='POST')
+def add():
+    post = _read_json()
     try:
         req = AddRequest.model_validate(post)
     except PydanticValidationError as exc:
-        raise web.HTTPBadRequest(reason=_first_validation_error(exc)) from exc
+        abort(400, _first_validation_error(exc))
 
     for preset_name in req.ytdl_options_presets:
         if preset_name not in config.YTDL_OPTIONS_PRESETS:
-            raise web.HTTPBadRequest(reason='ytdl_options_presets must only contain configured preset names')
+            abort(400, 'ytdl_options_presets must only contain configured preset names')
     if req.ytdl_options_overrides and not config.ALLOW_YTDL_OPTIONS_OVERRIDES:
-        raise web.HTTPBadRequest(reason='ytdl_options_overrides are disabled')
+        abort(400, 'ytdl_options_overrides are disabled')
 
     limit = req.playlist_item_limit if req.playlist_item_limit is not None else config.DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT
 
@@ -461,171 +441,182 @@ async def add(request: web.Request) -> web.Response:
         "Add download request: type=%s quality=%s format=%s has_folder=%s auto_start=%s",
         req.download_type, req.quality, req.format, bool(req.folder), req.auto_start,
     )
-    status = await dqueue.add(
+    status = dqueue.add(
         req.url, req.download_type, req.codec, req.format, req.quality,
         req.folder, req.custom_name_prefix, limit, req.auto_start,
         subtitle_langs=req.subtitle_langs,
         ytdl_options_presets=req.ytdl_options_presets,
         ytdl_options_overrides=req.ytdl_options_overrides,
     )
-    return web.json_response(status)
+    return _json(status)
 
 
-@routes.get('/presets')
-async def presets(request: web.Request) -> web.Response:
-    return web.json_response(PresetsResponse(presets=sorted(config.YTDL_OPTIONS_PRESETS.keys())).model_dump())
+@app.route('/presets')
+def presets():
+    return _json(PresetsResponse(presets=sorted(config.YTDL_OPTIONS_PRESETS.keys())).model_dump())
 
 
-@routes.post('/delete')
-async def delete(request: web.Request) -> web.Response:
-    post = await _read_json_request(request)
+@app.route('/delete', method='POST')
+def delete():
+    post = _read_json()
     try:
         req = DeleteRequest.model_validate(post)
     except PydanticValidationError as exc:
-        raise web.HTTPBadRequest(reason=_first_validation_error(exc)) from exc
-    status = await (dqueue.cancel(req.ids) if req.where == 'queue' else dqueue.clear(req.ids))
+        abort(400, _first_validation_error(exc))
+    status = dqueue.cancel(req.ids) if req.where == 'queue' else dqueue.clear(req.ids)
     log.info(f"Download delete request processed for ids: {req.ids}, where: {req.where}")
-    return web.json_response(status)
+    return _json(status)
 
 
-@routes.post('/cookies')
-async def upload_cookies(request: web.Request) -> web.Response:
-    reader = await request.multipart()
-    field = await reader.next()
-    if field is None or field.name != 'cookies':
-        return web.json_response(StatusResponse(status='error', msg='No cookies file provided').model_dump(), status=400)
+@app.route('/cookies', method='POST')
+def upload_cookies():
+    upload = request.files.get('cookies')
+    if upload is None:
+        return _json(StatusResponse(status='error', msg='No cookies file provided').model_dump(), 400)
 
+    content = upload.file.read()
     max_size = 1_000_000
-    size = 0
-    content = bytearray()
-    while True:
-        chunk = await field.read_chunk()
-        if not chunk:
-            break
-        size += len(chunk)
-        if size > max_size:
-            return web.json_response(StatusResponse(status='error', msg='Cookie file too large (max 1MB)').model_dump(), status=400)
-        content.extend(chunk)
+    if len(content) > max_size:
+        return _json(StatusResponse(status='error', msg='Cookie file too large (max 1MB)').model_dump(), 400)
 
     tmp_cookie_path = COOKIES_PATH.with_name(COOKIES_PATH.name + '.tmp')
-    tmp_cookie_path.write_bytes(bytes(content))
-    # Cookies are sensitive auth material; restrict to owner read/write only.
+    tmp_cookie_path.write_bytes(content)
     try:
         tmp_cookie_path.chmod(0o600)
     except OSError as exc:
         log.warning(f'Could not restrict permissions on cookies file: {exc}')
     tmp_cookie_path.replace(COOKIES_PATH)
     config.set_runtime_override('cookiefile', str(COOKIES_PATH))
+    size = len(content)
     log.info(f'Cookies file uploaded ({size} bytes)')
-    return web.json_response(StatusResponse(msg=f'Cookies uploaded ({size} bytes)').model_dump())
+    return _json(StatusResponse(msg=f'Cookies uploaded ({size} bytes)').model_dump())
 
 
-@routes.delete('/cookies')
-async def delete_cookies(request: web.Request) -> web.Response:
+@app.route('/cookies', method='DELETE')
+def delete_cookies():
     has_uploaded_cookies = COOKIES_PATH.exists()
     configured_cookiefile = config.YTDL_OPTIONS.get('cookiefile')
     has_manual_cookiefile = isinstance(configured_cookiefile, str) and configured_cookiefile and configured_cookiefile != str(COOKIES_PATH)
 
     if not has_uploaded_cookies:
         if has_manual_cookiefile:
-            return web.json_response(
+            return _json(
                 StatusResponse(status='error', msg='Cookies are configured manually via YTDL_OPTIONS (cookiefile). Remove or change that setting manually; UI delete only removes uploaded cookies.').model_dump(),
-                status=400,
+                400,
             )
-        return web.json_response(StatusResponse(status='error', msg='No uploaded cookies to delete').model_dump(), status=400)
+        return _json(StatusResponse(status='error', msg='No uploaded cookies to delete').model_dump(), 400)
 
     COOKIES_PATH.unlink()
     config.remove_runtime_override('cookiefile')
     success, msg = config.load_ytdl_options()
     if not success:
         log.error(f'Cookies file deleted, but failed to reload YTDL_OPTIONS: {msg}')
-        return web.json_response(StatusResponse(status='error', msg=f'Cookies file deleted, but failed to reload YTDL_OPTIONS: {msg}').model_dump(), status=500)
+        return _json(StatusResponse(status='error', msg=f'Cookies file deleted, but failed to reload YTDL_OPTIONS: {msg}').model_dump(), 500)
 
     log.info('Cookies file deleted')
-    return web.json_response(StatusResponse().model_dump())
+    return _json(StatusResponse().model_dump())
 
 
-@routes.get('/cookies')
-async def cookie_status(request: web.Request) -> web.Response:
+@app.route('/cookies')
+def cookie_status():
     configured_cookiefile = config.YTDL_OPTIONS.get('cookiefile')
     has_configured_cookies = isinstance(configured_cookiefile, str) and Path(configured_cookiefile).exists()
     has_uploaded_cookies = COOKIES_PATH.exists()
-    return web.json_response(CookieStatusResponse(has_cookies=has_uploaded_cookies or has_configured_cookies).model_dump())
+    return _json(CookieStatusResponse(has_cookies=has_uploaded_cookies or has_configured_cookies).model_dump())
 
 
-@routes.get('/queue')
-async def queue_state(request: web.Request) -> web.Response:
+@app.route('/queue')
+def queue_state():
     queue, done = dqueue.get()
-    return web.Response(
-        text=json.dumps([
-            [[k, info.to_public_dict()] for k, info in queue],
-            [[k, info.to_public_dict()] for k, info in done],
-        ]),
-        content_type='application/json',
-    )
+    return _json([
+        [[k, info.to_public_dict()] for k, info in queue],
+        [[k, info.to_public_dict()] for k, info in done],
+    ])
 
 
-@routes.get('/logs')
-async def get_logs(request: web.Request) -> web.Response:
+@app.route('/logs')
+def get_logs():
     dl_id = request.query.get('id')
     if not dl_id:
-        raise web.HTTPBadRequest(reason='missing id')
-    dl = (
-        dqueue.queue.dict.get(dl_id)
-        or dqueue.done.dict.get(dl_id)
-        or dqueue.pending.dict.get(dl_id)
-    )
+        abort(400, 'missing id')
+    dl = dqueue.queue.dict.get(dl_id) or dqueue.done.dict.get(dl_id)
     lines = dl.info.logs if dl is not None else []
-    return web.Response(text=json.dumps(lines), content_type='application/json')
+    return _json(lines)
 
 
-@routes.get('/configuration')
-async def configuration(request: web.Request) -> web.Response:
-    return web.json_response(ConfigurationResponse(**config.frontend_safe()).model_dump())
+@app.route('/configuration')
+def configuration():
+    return _json(ConfigurationResponse(**config.frontend_safe()).model_dump())
 
 
-@routes.get('/')
-async def index(request: web.Request) -> web.Response:
-    return web.FileResponse(Path(config.BASE_DIR) / 'ui/index.html')
+# ---------------------------------------------------------------------------
+# Static file routes
+# ---------------------------------------------------------------------------
+
+@app.route('/download/<filepath:path>')
+def serve_download(filepath):
+    target = (Path(config.DOWNLOAD_DIR) / unquote(filepath)).resolve()
+    if _is_within_state_dir(target):
+        abort(404)
+    return static_file(filepath, root=config.DOWNLOAD_DIR)
 
 
-routes.static('/download/', config.DOWNLOAD_DIR)
-routes.static('/audio_download/', config.AUDIO_DOWNLOAD_DIR)
-routes.static('/', Path(config.BASE_DIR) / 'ui')
-try:
-    app.add_routes(routes)
-except ValueError as e:
-    if 'ui/index.html' in str(e) or 'ui' in str(e):
-        raise RuntimeError('Could not find the frontend UI static assets. Expected ui/index.html') from e
-    raise e
+@app.route('/audio_download/<filepath:path>')
+def serve_audio_download(filepath):
+    target = (Path(config.AUDIO_DOWNLOAD_DIR) / unquote(filepath)).resolve()
+    if _is_within_state_dir(target):
+        abort(404)
+    return static_file(filepath, root=config.AUDIO_DOWNLOAD_DIR)
 
 
-# https://github.com/aio-libs/aiohttp/pull/4615 waiting for release
-# @routes.options('add')
-async def add_cors(request):
-    return web.json_response({'status': 'ok'})
-
-app.router.add_route('OPTIONS', '/add', add_cors)
-app.router.add_route('OPTIONS', '/cookies', add_cors)
-app.router.add_route('OPTIONS', '/logs', add_cors)
+@app.route('/')
+def index():
+    return static_file('index.html', root=str(Path(config.BASE_DIR) / 'ui'))
 
 
-async def on_prepare(request: web.Request, response: web.StreamResponse) -> None:
-    origin = request.headers.get('Origin')
-    if origin and _cors_origins and ('*' in _cors_origins or origin in _cors_origins):
-        response.headers['Access-Control-Allow-Origin'] = origin
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+@app.route('/<filepath:path>')
+def static_ui(filepath):
+    return static_file(filepath, root=str(Path(config.BASE_DIR) / 'ui'))
 
-app.on_response_prepare.append(on_prepare)
+
+# ---------------------------------------------------------------------------
+# Nightly update
+# ---------------------------------------------------------------------------
+
+def _start_nightly_update_thread():
+    global _RESTART_FOR_UPDATE
+
+    def _run():
+        global _RESTART_FOR_UPDATE
+        time_hhmm = config.YTDL_NIGHTLY_UPDATE_TIME
+        delay = seconds_until_next_daily_time(time_hhmm)
+        log.info('Next yt-dlp nightly update in %.0f seconds (at %s local time)', delay, time_hhmm)
+        time.sleep(delay)
+        log.info('Scheduled yt-dlp nightly update: requesting restart')
+        _RESTART_FOR_UPDATE = True
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    t = threading.Thread(target=_run, daemon=True, name='nightly-update')
+    t.start()
+
 
 if __name__ == '__main__':
     logging.getLogger().setLevel(parse_log_level(config.LOGLEVEL) or logging.INFO)
     log.info(f"Listening on {config.HOST}:{config.PORT}")
 
+    dqueue.initialize()
+
     if COOKIES_PATH.exists():
         config.set_runtime_override('cookiefile', str(COOKIES_PATH))
         log.info(f'Cookie file detected at {COOKIES_PATH}')
 
-    web.run_app(app, host=config.HOST, port=int(config.PORT))
+    if config.YTDL_NIGHTLY_UPDATE_TIME:
+        _start_nightly_update_thread()
+
+    try:
+        waitress.serve(app, host=config.HOST, port=int(config.PORT), threads=8)
+    finally:
+        Download.shutdown_manager()
+
     if _RESTART_FOR_UPDATE:
         sys.exit(42)
