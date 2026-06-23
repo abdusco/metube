@@ -211,39 +211,7 @@ class DownloadInfo:
         }
 
     def __setstate__(self, state):
-        """BACKWARD COMPATIBILITY: migrate old DownloadInfo from persistent queue files."""
         self.__dict__.update(state)
-        if 'download_type' not in state:
-            old_format = state.get('format', 'any')
-            old_video_codec = state.get('video_codec', 'auto')
-            old_quality = state.get('quality', 'best')
-            old_subtitle_format = state.get('subtitle_format', 'srt')
-
-            if old_format in AUDIO_FORMATS:
-                self.download_type = 'audio'
-                self.codec = 'auto'
-            elif old_format == 'thumbnail':
-                self.download_type = 'thumbnail'
-                self.codec = 'auto'
-                self.format = 'jpg'
-            elif old_format == 'captions':
-                self.download_type = 'captions'
-                self.codec = 'auto'
-                self.format = old_subtitle_format
-            else:
-                self.download_type = 'video'
-                self.codec = old_video_codec
-                if old_quality == 'best_ios':
-                    self.format = 'ios'
-                    self.quality = 'best'
-                elif old_quality == 'audio':
-                    self.download_type = 'audio'
-                    self.codec = 'auto'
-                    self.format = 'm4a'
-                    self.quality = 'best'
-            self.__dict__.pop('video_codec', None)
-            self.__dict__.pop('subtitle_format', None)
-
         if not getattr(self, "codec", None):
             self.codec = "auto"
         if not hasattr(self, "folder"):

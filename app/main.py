@@ -339,62 +339,6 @@ def _parse_ytdl_options_presets(post: dict) -> list[str]:
     )
 
 
-def _migrate_legacy_request(post: dict) -> dict:
-    """
-    BACKWARD COMPATIBILITY: Translate old API request schema into the new one.
-
-    Old API:
-      format (any/mp4/m4a/mp3/opus/wav/flac/thumbnail/captions)
-      quality
-      video_codec
-      subtitle_format (only when format=captions)
-
-    New API:
-      download_type (video/audio/captions/thumbnail)
-      codec
-      format
-      quality
-    """
-    if "download_type" in post:
-        return post
-
-    old_format = str(post.get("format") or "any").strip().lower()
-    old_quality = str(post.get("quality") or "best").strip().lower()
-    old_video_codec = str(post.get("video_codec") or "auto").strip().lower()
-
-    if old_format in VALID_AUDIO_FORMATS:
-        post["download_type"] = "audio"
-        post["codec"] = "auto"
-        post["format"] = old_format
-    elif old_format == "thumbnail":
-        post["download_type"] = "thumbnail"
-        post["codec"] = "auto"
-        post["format"] = "jpg"
-        post["quality"] = "best"
-    elif old_format == "captions":
-        post["download_type"] = "captions"
-        post["codec"] = "auto"
-        post["format"] = str(post.get("subtitle_format") or "srt").strip().lower()
-        post["quality"] = "best"
-    else:
-        # old_format is usually any/mp4 (legacy video path)
-        post["download_type"] = "video"
-        post["codec"] = old_video_codec
-        if old_quality == "best_ios":
-            post["format"] = "ios"
-            post["quality"] = "best"
-        elif old_quality == "audio":
-            # Legacy "audio only" under video format maps to m4a audio.
-            post["download_type"] = "audio"
-            post["codec"] = "auto"
-            post["format"] = "m4a"
-            post["quality"] = "best"
-        else:
-            post["format"] = old_format
-            post["quality"] = old_quality
-
-    return post
-
 class Notifier(DownloadQueueNotifier):
     async def added(self, dl):
         log.info(f"Notifier: Download added - {dl.title}")
@@ -458,7 +402,6 @@ async def _read_json_request(request: web.Request) -> dict:
 
 def parse_download_options(post: dict) -> dict:
     """Validate add body; raise HTTPBadRequest on invalid input."""
-    post = _migrate_legacy_request(dict(post))
     url = post.get('url')
     download_type = post.get('download_type')
     codec = post.get('codec')

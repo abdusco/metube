@@ -246,16 +246,6 @@ async def test_upload_cookies_missing_field(mock_dqueue):
     assert resp.status == 400
 
 
-@pytest.mark.asyncio
-async def test_add_legacy_format_migrated(mock_dqueue):
-    req = _json_request({"url": "https://example.com/v", "format": "m4a", "quality": "best"})
-    resp = await main.add(req)
-    assert resp.status == 200
-    call = mock_dqueue.add.await_args
-    assert call is not None
-    assert call.args[1] == "audio"
-
-
 def test_is_within_state_dir_blocks_state_subtree():
     state_dir = main._STATE_DIR_REAL
     assert main._is_within_state_dir(state_dir)

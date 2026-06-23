@@ -181,43 +181,6 @@ class DownloadInfoSetstateTests(unittest.TestCase):
         base.update(kwargs)
         return base
 
-    def test_migrates_old_audio_format(self):
-        state = self._base_state(format="m4a", quality="best")
-        di = DownloadInfo.__new__(DownloadInfo)
-        di.__setstate__(state)
-        self.assertEqual(di.download_type, "audio")
-        self.assertEqual(di.codec, "auto")
-
-    def test_migrates_thumbnail(self):
-        state = self._base_state(format="thumbnail", quality="best")
-        di = DownloadInfo.__new__(DownloadInfo)
-        di.__setstate__(state)
-        self.assertEqual(di.download_type, "thumbnail")
-        self.assertEqual(di.format, "jpg")
-
-    def test_migrates_captions(self):
-        state = self._base_state(format="captions", subtitle_format="vtt", quality="best")
-        di = DownloadInfo.__new__(DownloadInfo)
-        di.__setstate__(state)
-        self.assertEqual(di.download_type, "captions")
-        self.assertEqual(di.format, "vtt")
-
-    def test_migrates_best_ios(self):
-        state = self._base_state(
-            format="any", quality="best_ios", video_codec="auto"
-        )
-        di = DownloadInfo.__new__(DownloadInfo)
-        di.__setstate__(state)
-        self.assertEqual(di.format, "ios")
-        self.assertEqual(di.quality, "best")
-
-    def test_migrates_quality_audio(self):
-        state = self._base_state(format="mp4", quality="audio", video_codec="h264")
-        di = DownloadInfo.__new__(DownloadInfo)
-        di.__setstate__(state)
-        self.assertEqual(di.download_type, "audio")
-        self.assertEqual(di.format, "m4a")
-
     def test_new_state_has_subtitle_files(self):
         state = self._base_state(
             download_type="video",
