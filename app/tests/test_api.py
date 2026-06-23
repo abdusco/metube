@@ -35,7 +35,6 @@ def _valid_video_add_body(**kwargs):
         "codec": "auto",
         "format": "any",
         "quality": "best",
-        "ytdl_options_presets": [],
         "ytdl_options_overrides": "",
     }
     base.update(kwargs)
@@ -49,16 +48,13 @@ def test_add_ok(client):
     main.dqueue.add.assert_called_once()
 
 
-def test_add_passes_preset_and_overrides(client, monkeypatch):
-    monkeypatch.setattr(main.config, "YTDL_OPTIONS_PRESETS", {"Preset A": {"writesubtitles": True}})
+def test_add_passes_overrides(client, monkeypatch):
     monkeypatch.setattr(main.config, "ALLOW_YTDL_OPTIONS_OVERRIDES", True)
     resp = client.post_json('/add', _valid_video_add_body(
-        ytdl_options_presets=["Preset A"],
         ytdl_options_overrides='{"writesubtitles": true}',
     ))
     assert resp.status_int == 200
     call_kwargs = main.dqueue.add.call_args.kwargs
-    assert call_kwargs["ytdl_options_presets"] == ["Preset A"]
     assert call_kwargs["ytdl_options_overrides"] == {"writesubtitles": True}
 
 
@@ -75,11 +71,6 @@ def test_add_invalid_download_type(client):
 
 def test_add_invalid_video_quality(client):
     resp = client.post_json('/add', _valid_video_add_body(quality="9999"), expect_errors=True)
-    assert resp.status_int == 400
-
-
-def test_add_custom_name_prefix_path_traversal(client):
-    resp = client.post_json('/add', _valid_video_add_body(custom_name_prefix="../evil"), expect_errors=True)
     assert resp.status_int == 400
 
 
@@ -106,11 +97,6 @@ def test_add_allows_any_ytdl_options_override_key_when_enabled(client, monkeypat
     assert call_kwargs["ytdl_options_overrides"] == {"exec": "echo hi"}
 
 
-def test_add_unknown_ytdl_preset(client):
-    resp = client.post_json('/add', _valid_video_add_body(ytdl_options_presets=["Missing"]), expect_errors=True)
-    assert resp.status_int == 400
-
-
 def test_delete_missing_ids(client):
     resp = client.post_json('/delete', {"where": "queue"}, expect_errors=True)
     assert resp.status_int == 400
@@ -120,13 +106,6 @@ def test_delete_queue_calls_cancel(client):
     resp = client.post_json('/delete', {"where": "queue", "ids": ["http://x"]})
     assert resp.status_int == 200
     main.dqueue.cancel.assert_called_once_with(["http://x"])
-
-
-def test_presets_endpoint_returns_names(client, monkeypatch):
-    monkeypatch.setattr(main.config, "YTDL_OPTIONS_PRESETS", {"Preset B": {}, "Preset A": {}})
-    resp = client.get('/presets')
-    assert resp.status_int == 200
-    assert resp.json == {"presets": ["Preset A", "Preset B"]}
 
 
 def test_cookie_status(client):

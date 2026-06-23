@@ -103,15 +103,6 @@
         </select>
       </div>
 
-      <!-- Presets (only shown when presets exist) -->
-      <div class="field" x-show="presets.length > 0" style="grid-column: 1 / -1">
-        <label>yt-dlp presets</label>
-        <select multiple x-model="selectedPresets" style="min-height:72px">
-          <template x-for="p in presets" :key="p">
-            <option :value="p" x-text="p"></option>
-          </template>
-        </select>
-      </div>
     </div>
 
     <details class="advanced">

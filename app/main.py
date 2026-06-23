@@ -69,11 +69,9 @@ class Config(BaseSettings):
     OUTPUT_TEMPLATE: str = "%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s"
     OUTPUT_TEMPLATE_PLAYLIST: str = "%(playlist_title)s/%(title)s.%(ext)s"
     OUTPUT_TEMPLATE_CHANNEL: str = "%(channel)s/%(title)s.%(ext)s"
-    DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT: int = 0
     CLEAR_COMPLETED_AFTER: int = 0
     YTDL_OPTIONS: dict[str, Any] = Field(default_factory=dict)
     YTDL_OPTIONS_FILE: str = ""
-    YTDL_OPTIONS_PRESETS: dict[str, Any] = Field(default_factory=dict)
     ALLOW_YTDL_OPTIONS_OVERRIDES: bool = False
     CORS_ALLOWED_ORIGINS: str = ""
     HOST: str = "0.0.0.0"
@@ -89,7 +87,6 @@ class Config(BaseSettings):
     _FRONTEND_KEYS: ClassVar[tuple[str, ...]] = (
         "PUBLIC_HOST_URL",
         "PUBLIC_HOST_AUDIO_URL",
-        "DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT",
         "ALLOW_YTDL_OPTIONS_OVERRIDES",
     )
 
@@ -138,14 +135,6 @@ class Config(BaseSettings):
     def _resolve_options_file(cls, v: str) -> str:
         if v and v.startswith("."):
             return str(Path(v).resolve())
-        return v
-
-    @field_validator("YTDL_OPTIONS_PRESETS")
-    @classmethod
-    def _validate_presets_shape(cls, v: dict) -> dict:
-        for name, opts in v.items():
-            if not isinstance(name, str) or not isinstance(opts, dict):
-                raise ValueError("each entry must be a string name mapped to an options dict")
         return v
 
     @model_validator(mode="after")
@@ -207,11 +196,7 @@ class AddRequest(BaseModel):
     format: str
     codec: str = "auto"
     folder: str | None = None
-    custom_name_prefix: str = ""
-    playlist_item_limit: int | None = None
-    auto_start: bool = True
     subtitle_langs: list[str] = Field(default_factory=list)
-    ytdl_options_presets: list[str] = Field(default_factory=list)
     ytdl_options_overrides: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("url")
@@ -235,13 +220,6 @@ class AddRequest(BaseModel):
         v = v.strip().lower()
         if v not in VALID_VIDEO_CODECS:
             raise ValueError(f"must be one of {sorted(VALID_VIDEO_CODECS)}")
-        return v
-
-    @field_validator("custom_name_prefix")
-    @classmethod
-    def _no_traversal(cls, v: str) -> str:
-        if v and (".." in v or v.startswith("/") or v.startswith("\\")):
-            raise ValueError('must not contain ".." or start with a path separator')
         return v
 
     @field_validator("subtitle_langs")
@@ -310,15 +288,10 @@ class CookieStatusResponse(BaseModel):
     has_cookies: bool
 
 
-class PresetsResponse(BaseModel):
-    presets: list[str]
-
-
 class ConfigurationResponse(BaseModel):
     ALLOW_YTDL_OPTIONS_OVERRIDES: bool
     PUBLIC_HOST_URL: str
     PUBLIC_HOST_AUDIO_URL: str
-    DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT: int
 
 
 def _is_within_state_dir(target: str | Path) -> bool:
@@ -416,42 +389,27 @@ def add():
     except PydanticValidationError as exc:
         abort(400, _first_validation_error(exc))
 
-    for preset_name in req.ytdl_options_presets:
-        if preset_name not in config.YTDL_OPTIONS_PRESETS:
-            abort(400, "ytdl_options_presets must only contain configured preset names")
     if req.ytdl_options_overrides and not config.ALLOW_YTDL_OPTIONS_OVERRIDES:
         abort(400, "ytdl_options_overrides are disabled")
 
-    limit = req.playlist_item_limit if req.playlist_item_limit is not None else config.DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT
-
     log.info(
-        "Add download request: type=%s quality=%s format=%s has_folder=%s auto_start=%s",
+        "Add download request: type=%s quality=%s format=%s has_folder=%s",
         req.download_type,
         req.quality,
         req.format,
         bool(req.folder),
-        req.auto_start,
     )
     status = dqueue.add(
-        req.url,
-        req.download_type,
-        req.codec,
-        req.format,
-        req.quality,
-        req.folder,
-        req.custom_name_prefix,
-        limit,
-        req.auto_start,
+        url=req.url,
+        download_type=req.download_type,
+        codec=req.codec,
+        format=req.format,
+        quality=req.quality,
+        folder=req.folder,
         subtitle_langs=req.subtitle_langs,
-        ytdl_options_presets=req.ytdl_options_presets,
         ytdl_options_overrides=req.ytdl_options_overrides,
     )
     return _json(status)
-
-
-@app.route("/presets")
-def presets():
-    return _json(PresetsResponse(presets=sorted(config.YTDL_OPTIONS_PRESETS.keys())).model_dump())
 
 
 @app.route("/delete", method="POST")

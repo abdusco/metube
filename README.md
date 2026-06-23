@@ -39,7 +39,6 @@ Certain values can be set via environment variables, using the `-e` parameter on
 
 * __MAX_CONCURRENT_DOWNLOADS__: Maximum number of simultaneous downloads allowed. For example, if set to `5`, then at most five downloads will run concurrently, and any additional downloads will wait until one of the active downloads completes. Defaults to `3`. 
 * __DELETE_FILE_ON_TRASHCAN__: if `true`, downloaded files are deleted on the server, when they are trashed from the "Completed" section of the UI. Defaults to `false`.
-* __DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT__: Maximum number of playlist items that can be downloaded. Defaults to `0` (no limit).
 * __CLEAR_COMPLETED_AFTER__: Number of seconds after which completed (and failed) downloads are automatically removed from the "Completed" list. Defaults to `0` (disabled).
 
 ### 📁 Storage & Directories
@@ -60,8 +59,6 @@ Certain values can be set via environment variables, using the `-e` parameter on
 * __OUTPUT_TEMPLATE_CHANNEL__: The template for the filenames of the downloaded videos when downloaded as a channel. Defaults to `%(channel)s/%(title)s.%(ext)s`. Set to empty to use `OUTPUT_TEMPLATE` instead.
 * __YTDL_OPTIONS__: Additional options to pass to yt-dlp, as a JSON object. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options) for details, examples, and available options reference.
 * __YTDL_OPTIONS_FILE__: Path to a JSON file containing yt-dlp options. Loaded on startup. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options).
-* __YTDL_OPTIONS_PRESETS__: Named bundles of yt-dlp options, selectable per download in the UI. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options) for format and examples.
-* __YTDL_OPTIONS_PRESETS_FILE__: Path to a JSON file containing presets. Monitored and reloaded automatically on changes. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options).
 * __ALLOW_YTDL_OPTIONS_OVERRIDES__: Whether to show a free-text field in the UI for per-download yt-dlp option overrides. Defaults to `false`. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options) for details and security considerations.
 * __YTDL_NIGHTLY_UPDATE_TIME__: If set, will cause MeTube to use [nightly yt-dlp builds](https://github.com/yt-dlp/yt-dlp-nightly-builds) instead of the stable releases. Set to the time (`HH:MM`, 24-hour) when you want the daily upgrades and MeTube restart to happen. Defaults to empty (disabled).
 
@@ -89,15 +86,14 @@ Certain values can be set via environment variables, using the `-e` parameter on
 
 ## 🎛️ Configuring yt-dlp options
 
-MeTube lets you customize how [yt-dlp](https://github.com/yt-dlp/yt-dlp) behaves at three levels, from broadest to most specific:
+MeTube lets you customize how [yt-dlp](https://github.com/yt-dlp/yt-dlp) behaves at two levels, from broadest to most specific:
 
 1. **Global options** — apply to every download by default.
-2. **Presets** — named bundles of options that users can pick per download from the UI.
-3. **Per-download overrides** — free-form options entered in the UI for a single download.
+2. **Per-download overrides** — free-form options entered in the UI for a single download.
 
-When a download starts, these layers are combined in order. If the same option appears in more than one layer, the more specific one wins: per-download overrides beat presets, and presets beat global options.
+When a download starts, these layers are combined in order. If the same option appears in more than one layer, the more specific one wins.
 
-In JSON presets and overrides, setting an option to **`null`** clears that option for that download (for example, `"download_archive": null` overrides a global archive path so the archive is not used). This follows yt-dlp’s usual meaning of `None` for that option.
+In JSON overrides, setting an option to **`null`** clears that option for that download (for example, `"download_archive": null` overrides a global archive path so the archive is not used). This follows yt-dlp’s usual meaning of `None` for that option.
 
 ### Option format
 
@@ -138,43 +134,6 @@ where `ytdl-options.json` contains:
 
 The file is loaded on startup. If you use both methods and they define the same key, the **file takes precedence**.
 
-### Presets
-
-Presets let you define named bundles of options that appear in the web UI under **Advanced Options** as "Option Presets". Users can select one or more presets per download, making it easy to apply common option combinations without editing global settings.
-
-Presets are configured via:
-
-* `YTDL_OPTIONS_PRESETS` — a JSON object where each key is a preset name and its value is a set of yt-dlp options.
-
-**Example** — a presets file defining three presets:
-
-```json
-{
-  "sponsorblock": {
-    "postprocessors": [
-      { "key": "SponsorBlock", "categories": ["sponsor", "selfpromo", "interaction"] },
-      { "key": "ModifyChapters", "remove_sponsor_segments": ["sponsor", "selfpromo", "interaction"] }
-    ]
-  },
-  "embed-subs": {
-    "writesubtitles": true,
-    "writeautomaticsub": true,
-    "subtitleslangs": ["en", "de"],
-    "postprocessors": [{ "key": "FFmpegEmbedSubtitle" }]
-  },
-  "limit-rate": {
-    "ratelimit": 5000000
-  }
-}
-```
-
-This makes three presets available in the UI:
-* **sponsorblock** — strips sponsor, self-promo, and interaction segments from videos.
-* **embed-subs** — downloads English and German subtitles and embeds them into the video file.
-* **limit-rate** — caps download speed to ~5 MB/s.
-
-When multiple presets are selected for a download, they are applied in order. If two presets set the same option, the later one wins.
-
 ### Per-download overrides
 
 For one-off tweaks, MeTube can expose a free-text JSON field in the UI ("Custom yt-dlp Options") where users type yt-dlp options that apply only to that single download. This is disabled by default:
@@ -184,7 +143,7 @@ environment:
   - ALLOW_YTDL_OPTIONS_OVERRIDES=true
 ```
 
-Once enabled, the field appears under **Advanced Options**. Any options entered there take the highest priority, overriding both global options and selected presets.
+Once enabled, the field appears under **Advanced Options**. Any options entered there take the highest priority, overriding global options.
 
 > **⚠️ Security note:** Enabling this allows arbitrary yt-dlp API options to be supplied by anyone with access to the UI. Depending on the options used, this may enable arbitrary command execution inside the container. Enable only in trusted environments.
 
@@ -193,12 +152,11 @@ Once enabled, the field appears under **Advanced Options**. Any options entered 
 When a download starts, the final set of yt-dlp options is built in this order:
 
 1. Start with **global options** (`YTDL_OPTIONS` / `YTDL_OPTIONS_FILE`).
-2. Apply each selected **preset** in order (later presets overwrite earlier ones for conflicting keys).
-3. Apply any **per-download overrides** on top (overwrite everything else for conflicting keys).
+2. Apply any **per-download overrides** on top (overwrite global options for conflicting keys).
 
-MeTube always forces its own flat-extract behaviour during the initial metadata fetch (`extract_flat`, `noplaylist`, etc.); presets cannot override those keys for that phase.
+MeTube always forces its own flat-extract behaviour during the initial metadata fetch (`extract_flat`, `noplaylist`, etc.); overrides cannot override those keys for that phase.
 
-**Example:** Suppose your global options set `"writesubtitles": false`, but you select a preset that sets `"writesubtitles": true`. Subtitles will be written for that download because the preset overrides the global setting. If you additionally enter `{"writesubtitles": false}` in the per-download overrides field, that value wins and subtitles will not be written.
+**Example:** Suppose your global options set `"writesubtitles": false`. If you additionally enter `{"writesubtitles": true}` in the per-download overrides field, that value wins and subtitles will be written for that download only.
 
 ### Configuration cookbooks
 
@@ -212,7 +170,7 @@ MeTube can fetch subtitles alongside video and audio downloads. Open **Advanced 
 
 When subtitles are found, both the manually-uploaded and auto-generated variants are requested for each language (e.g. `en` and `en-orig`). The downloaded `.vtt` or `.srt` files appear as separate download links under the completed item, next to the video file.
 
-To embed subtitles directly into the video container instead of downloading them as sidecar files, use the `FFmpegEmbedSubtitle` postprocessor via `YTDL_OPTIONS` or a preset — see [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options).
+To embed subtitles directly into the video container instead of downloading them as sidecar files, use the `FFmpegEmbedSubtitle` postprocessor via `YTDL_OPTIONS` — see [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options).
 
 ## 🍪 Using browser cookies
 

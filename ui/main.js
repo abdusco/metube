@@ -25,7 +25,6 @@
 
 /**
  * @typedef {object} AppConfig
- * @property {boolean} ALLOW_YTDL_OPTIONS_OVERRIDES
  * @property {string}  PUBLIC_HOST_URL
  * @property {string}  PUBLIC_HOST_AUDIO_URL
  */
@@ -43,10 +42,6 @@ function app() {
     codec: 'auto',
     format: 'mp4',
     quality: 'best',
-    /** @type {string[]} */
-    selectedPresets: [],
-    /** @type {string[]} */
-    presets: [],
 
     // ── queue state ───────────────────────────────────────────────────────────
     /** @type {Download[]} */
@@ -61,7 +56,7 @@ function app() {
 
     // ── config ────────────────────────────────────────────────────────────────
     /** @type {AppConfig} */
-    config: { ALLOW_YTDL_OPTIONS_OVERRIDES: false, PUBLIC_HOST_URL: 'download/', PUBLIC_HOST_AUDIO_URL: 'audio_download/' },
+    config: { PUBLIC_HOST_URL: 'download/', PUBLIC_HOST_AUDIO_URL: 'audio_download/' },
 
     // ── cookies ───────────────────────────────────────────────────────────────
     hasCookies: false,
@@ -99,7 +94,6 @@ function app() {
 
       await Promise.all([
         this._loadConfig(),
-        this._loadPresets(),
         this._refreshCookieStatus(),
         this.pollState(),
       ]);
@@ -127,23 +121,13 @@ function app() {
     },
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  Config / presets
+    //  Config
     // ══════════════════════════════════════════════════════════════════════════
 
     async _loadConfig() {
       try {
         const resp = await fetch('configuration');
         if (resp.ok) this.config = await resp.json();
-      } catch { /* ignore */ }
-    },
-
-    async _loadPresets() {
-      try {
-        const resp = await fetch('presets');
-        if (resp.ok) {
-          const data = await resp.json();
-          this.presets = data.presets || [];
-        }
       } catch { /* ignore */ }
     },
 
@@ -169,17 +153,12 @@ function app() {
             format:               this.format,
             quality:              this.quality,
             folder:               '',
-            custom_name_prefix:   '',
-            playlist_item_limit:  0,
-            auto_start:           true,
             subtitle_langs:       langs,
-            ytdl_options_presets: this.selectedPresets,
           }),
         });
         const data = await resp.json();
         if (data.status === 'ok') {
           this.url = '';
-          this.selectedPresets = [];
           await this.pollState();
         } else {
           this.error = data.msg || 'Failed to add download';
@@ -220,11 +199,7 @@ function app() {
           format:               dl.format,
           quality:              dl.quality,
           folder:               dl.folder || '',
-          custom_name_prefix:   dl.custom_name_prefix || '',
-          playlist_item_limit:  dl.playlist_item_limit || 0,
-          auto_start:           true,
           subtitle_langs:       dl.subtitle_langs || [],
-          ytdl_options_presets: dl.ytdl_options_presets || [],
         }),
       });
       await this.deleteDownload(dl.id, 'done');

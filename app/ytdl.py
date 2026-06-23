@@ -117,32 +117,26 @@ class DownloadInfo:
         codec: str,
         format: str,
         folder: str | None,
-        custom_name_prefix: str,
         error: str | None,
         entry: dict[str, Any] | None,
-        playlist_item_limit: int,
         subtitle_langs: list[str] | None = None,
-        ytdl_options_presets: list[str] | None = None,
         ytdl_options_overrides: dict[str, Any] | None = None,
     ) -> None:
-        self.id = id if len(custom_name_prefix) == 0 else f'{custom_name_prefix}.{id}'
-        self.title = title if len(custom_name_prefix) == 0 else f'{custom_name_prefix}.{title}'
+        self.id = id
+        self.title = title
         self.url = url
         self.quality = quality
         self.download_type = download_type
         self.codec = codec
         self.format = format
         self.folder = folder
-        self.custom_name_prefix = custom_name_prefix
         self.msg = self.percent = self.speed = self.eta = None
         self.status = "pending"
         self.size = None
         self.timestamp = time.time_ns()
         self.error = error
         self.entry = _sanitize_entry_for_pickle(entry) if entry is not None else None
-        self.playlist_item_limit = playlist_item_limit
         self.subtitle_langs = list(subtitle_langs) if subtitle_langs else []
-        self.ytdl_options_presets = list(ytdl_options_presets or [])
         self.ytdl_options_overrides = dict(ytdl_options_overrides or {})
         self.subtitle_files = []
         self.logs: list = []
@@ -162,20 +156,8 @@ class DownloadInfo:
             self.codec = "auto"
         if not hasattr(self, "folder"):
             self.folder = ""
-        if not hasattr(self, "custom_name_prefix"):
-            self.custom_name_prefix = ""
-        if not hasattr(self, "playlist_item_limit"):
-            self.playlist_item_limit = 0
         if not hasattr(self, "subtitle_langs"):
             self.subtitle_langs = []
-        legacy_preset = self.__dict__.pop("ytdl_options_preset", None)
-        if "ytdl_options_presets" not in self.__dict__:
-            if isinstance(legacy_preset, str) and legacy_preset.strip():
-                self.ytdl_options_presets = [legacy_preset.strip()]
-            elif isinstance(legacy_preset, list):
-                self.ytdl_options_presets = [str(x).strip() for x in legacy_preset if str(x).strip()]
-            else:
-                self.ytdl_options_presets = []
         if not hasattr(self, "ytdl_options_overrides"):
             self.ytdl_options_overrides = {}
         if not hasattr(self, "entry"):
@@ -195,10 +177,7 @@ _PERSISTED_DOWNLOAD_FIELDS = (
     "codec",
     "format",
     "folder",
-    "custom_name_prefix",
-    "playlist_item_limit",
     "subtitle_langs",
-    "ytdl_options_presets",
     "ytdl_options_overrides",
     "status",
     "timestamp",
@@ -625,16 +604,14 @@ class DownloadQueue:
             log.debug(f'Auto-clearing completed download: {url}')
             self.clear([url])
 
-    def _build_ytdl_options(self, ytdl_options_presets: list[str] | None = None, ytdl_options_overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _build_ytdl_options(self, ytdl_options_overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         opts = dict(self.config.YTDL_OPTIONS)
-        for preset_name in ytdl_options_presets or []:
-            opts.update(self.config.YTDL_OPTIONS_PRESETS.get(preset_name, {}))
         opts.update(ytdl_options_overrides or {})
         return opts
 
-    def __extract_info(self, url: str, ytdl_options_presets: list[str] | None = None, ytdl_options_overrides: dict[str, Any] | None = None) -> Any:
+    def __extract_info(self, url: str, ytdl_options_overrides: dict[str, Any] | None = None) -> Any:
         debug_logging = logging.getLogger().isEnabledFor(logging.DEBUG)
-        user_opts = self._build_ytdl_options(ytdl_options_presets, ytdl_options_overrides)
+        user_opts = self._build_ytdl_options(ytdl_options_overrides)
         params = {
             **user_opts,
             'quiet': not debug_logging,
@@ -665,7 +642,7 @@ class DownloadQueue:
         dldirectory, error_message = self.__calc_download_path(dl.download_type, dl.folder)
         if error_message is not None:
             return error_message
-        output = self.config.OUTPUT_TEMPLATE if len(dl.custom_name_prefix) == 0 else f'{dl.custom_name_prefix}.{self.config.OUTPUT_TEMPLATE}'
+        output = self.config.OUTPUT_TEMPLATE
         entry = getattr(dl, 'entry', None)
         if entry is not None and entry.get('playlist_index') is not None:
             if len(self.config.OUTPUT_TEMPLATE_PLAYLIST):
@@ -677,14 +654,7 @@ class DownloadQueue:
                 output = self.config.OUTPUT_TEMPLATE_CHANNEL
             sanitized = {k: _sanitize_path_component(v) for k, v in entry.items()}
             output = _resolve_outtmpl_fields(output, sanitized, ('channel',))
-        ytdl_options = self._build_ytdl_options(
-            getattr(dl, 'ytdl_options_presets', None),
-            getattr(dl, 'ytdl_options_overrides', {}) or {},
-        )
-        playlist_item_limit = getattr(dl, 'playlist_item_limit', 0)
-        if playlist_item_limit > 0:
-            log.info(f'playlist limit is set. Processing only first {playlist_item_limit} entries')
-            ytdl_options['playlistend'] = playlist_item_limit
+        ytdl_options = self._build_ytdl_options(getattr(dl, 'ytdl_options_overrides', {}) or {})
         download = Download(
             download_dir=dldirectory,
             temp_dir=Path(self.config.TEMP_DIR),
@@ -707,10 +677,7 @@ class DownloadQueue:
         format: str,
         quality: str,
         folder: str | None,
-        custom_name_prefix: str,
-        playlist_item_limit: int,
         subtitle_langs: list[str],
-        ytdl_options_presets: list[str],
         ytdl_options_overrides: dict[str, Any],
         already: set[str],
     ) -> dict[str, Any]:
@@ -729,10 +696,7 @@ class DownloadQueue:
                 format=format,
                 quality=quality,
                 folder=folder,
-                custom_name_prefix=custom_name_prefix,
-                playlist_item_limit=playlist_item_limit,
                 subtitle_langs=subtitle_langs,
-                ytdl_options_presets=ytdl_options_presets,
                 ytdl_options_overrides=ytdl_options_overrides,
                 already=already,
             )
@@ -745,9 +709,6 @@ class DownloadQueue:
             log.info(f'{etype} detected with {total_entries} entries')
             index_digits = len(str(total_entries))
             results = []
-            if playlist_item_limit > 0:
-                log.info(f'Item limit is set. Processing only first {playlist_item_limit} entries')
-                entries = entries[:playlist_item_limit]
             for index, etr in enumerate(entries, start=1):
                 if "id" not in etr:
                     etr["id"] = _entry_id(etr)
@@ -769,10 +730,7 @@ class DownloadQueue:
                         format=format,
                         quality=quality,
                         folder=folder,
-                        custom_name_prefix=custom_name_prefix,
-                        playlist_item_limit=playlist_item_limit,
                         subtitle_langs=subtitle_langs,
-                        ytdl_options_presets=ytdl_options_presets,
                         ytdl_options_overrides=ytdl_options_overrides,
                         already=already,
                     )
@@ -793,12 +751,9 @@ class DownloadQueue:
                     codec=codec,
                     format=format,
                     folder=folder,
-                    custom_name_prefix=custom_name_prefix,
                     error=error,
                     entry=entry,
-                    playlist_item_limit=playlist_item_limit,
                     subtitle_langs=subtitle_langs,
-                    ytdl_options_presets=ytdl_options_presets,
                     ytdl_options_overrides=ytdl_options_overrides,
                 )
                 self.__add_download(dl)
@@ -813,19 +768,12 @@ class DownloadQueue:
         format: str,
         quality: str,
         folder: str | None,
-        custom_name_prefix: str,
-        playlist_item_limit: int,
-        auto_start: bool = True,
         subtitle_langs: list[str] | None = None,
-        ytdl_options_presets: list[str] | None = None,
         ytdl_options_overrides: dict[str, Any] | None = None,
         already: set[str] | None = None,
     ) -> dict[str, Any]:
-        if ytdl_options_presets is None:
-            ytdl_options_presets = []
         log.info(
-            f'adding {url}: {download_type=} {codec=} {format=} {quality=} {already=} {folder=} {custom_name_prefix=} '
-            f'{playlist_item_limit=} {auto_start=} {subtitle_langs=} {ytdl_options_presets=}'
+            f'adding {url}: {download_type=} {codec=} {format=} {quality=} {already=} {folder=} {subtitle_langs=}'
         )
         already = set() if already is None else already
         if url in already:
@@ -833,7 +781,7 @@ class DownloadQueue:
             return {'status': 'ok'}
         already.add(url)
         try:
-            entry = self.__extract_info(url, ytdl_options_presets, ytdl_options_overrides)
+            entry = self.__extract_info(url, ytdl_options_overrides)
         except yt_dlp.utils.YoutubeDLError as exc:
             return {'status': 'error', 'msg': str(exc)}
         return self.__add_entry(
@@ -843,10 +791,7 @@ class DownloadQueue:
             format=format,
             quality=quality,
             folder=folder,
-            custom_name_prefix=custom_name_prefix,
-            playlist_item_limit=playlist_item_limit,
             subtitle_langs=subtitle_langs or [],
-            ytdl_options_presets=ytdl_options_presets,
             ytdl_options_overrides=ytdl_options_overrides or {},
             already=already,
         )
@@ -859,15 +804,9 @@ class DownloadQueue:
         format: str,
         quality: str,
         folder: str | None,
-        custom_name_prefix: str,
-        playlist_item_limit: int,
-        auto_start: bool = True,
         subtitle_langs: list[str] | None = None,
-        ytdl_options_presets: list[str] | None = None,
         ytdl_options_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if ytdl_options_presets is None:
-            ytdl_options_presets = []
         normalized_entry = copy.deepcopy(entry) if isinstance(entry, dict) else entry
         already = set()
         return self.__add_entry(
@@ -877,10 +816,7 @@ class DownloadQueue:
             format=format,
             quality=quality,
             folder=folder,
-            custom_name_prefix=custom_name_prefix,
-            playlist_item_limit=playlist_item_limit,
             subtitle_langs=subtitle_langs or [],
-            ytdl_options_presets=ytdl_options_presets,
             ytdl_options_overrides=ytdl_options_overrides or {},
             already=already,
         )

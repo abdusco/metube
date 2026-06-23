@@ -52,10 +52,6 @@ class AddRequestTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             main.AddRequest.model_validate({**self._base, "download_type": "zip"})
 
-    def test_rejects_bad_custom_name_prefix(self):
-        with self.assertRaises(ValidationError):
-            main.AddRequest.model_validate({**self._base, "custom_name_prefix": "../secret"})
-
     def test_rejects_invalid_subtitle_lang(self):
         with self.assertRaises(ValidationError):
             main.AddRequest.model_validate({**self._base, "subtitle_langs": ["!bad"]})
@@ -75,10 +71,6 @@ class AddRequestTests(unittest.TestCase):
     def test_empty_overrides_string_becomes_empty_dict(self):
         req = main.AddRequest.model_validate({**self._base, "ytdl_options_overrides": ""})
         self.assertEqual(req.ytdl_options_overrides, {})
-
-    def test_multiple_presets_list(self):
-        req = main.AddRequest.model_validate({**self._base, "ytdl_options_presets": ["A", "B"]})
-        self.assertEqual(req.ytdl_options_presets, ["A", "B"])
 
     def test_audio_forces_auto_codec(self):
         req = main.AddRequest.model_validate({
@@ -103,11 +95,6 @@ class AddRequestTests(unittest.TestCase):
     def test_video_rejects_invalid_quality(self):
         with self.assertRaises(ValidationError):
             main.AddRequest.model_validate({**self._base, "quality": "999p"})
-
-    def test_playlist_item_limit_defaults_to_none(self):
-        req = main.AddRequest.model_validate(self._base)
-        self.assertIsNone(req.playlist_item_limit)
-
 
 if __name__ == "__main__":
     unittest.main()

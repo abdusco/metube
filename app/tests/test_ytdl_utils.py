@@ -164,10 +164,8 @@ class DownloadInfoSetstateTests(unittest.TestCase):
             "title": "t",
             "url": "http://example.com/v",
             "folder": "",
-            "custom_name_prefix": "",
             "error": None,
             "entry": None,
-            "playlist_item_limit": 0,
             "msg": None,
             "percent": None,
             "speed": None,
@@ -198,13 +196,9 @@ class DownloadInfoSetstateTests(unittest.TestCase):
             quality="best",
         )
         state.pop("folder")
-        state.pop("custom_name_prefix")
-        state.pop("playlist_item_limit")
         di = DownloadInfo.__new__(DownloadInfo)
         di.__setstate__(state)
         self.assertEqual(di.folder, "")
-        self.assertEqual(di.custom_name_prefix, "")
-        self.assertEqual(di.playlist_item_limit, 0)
 
 
 class CompactPersistedEntryTests(unittest.TestCase):

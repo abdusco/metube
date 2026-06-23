@@ -21,11 +21,9 @@ _BASE_ENV: dict[str, str] = {
     'OUTPUT_TEMPLATE': '%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s',
     'OUTPUT_TEMPLATE_PLAYLIST': '%(playlist_title)s/%(title)s.%(ext)s',
     'OUTPUT_TEMPLATE_CHANNEL': '%(channel)s/%(title)s.%(ext)s',
-    'DEFAULT_OPTION_PLAYLIST_ITEM_LIMIT': '0',
     'CLEAR_COMPLETED_AFTER': '0',
     'YTDL_OPTIONS': '{}',
     'YTDL_OPTIONS_FILE': '',
-    'YTDL_OPTIONS_PRESETS': '{}',
     'ALLOW_YTDL_OPTIONS_OVERRIDES': 'false',
     'CORS_ALLOWED_ORIGINS': '',
     'HOST': '0.0.0.0',
@@ -105,16 +103,6 @@ class ConfigTests(unittest.TestCase):
         ):
             c = Config()
         self.assertEqual(c.YTDL_OPTIONS["quiet"], True)
-
-    def test_ytdl_option_presets_json_loaded(self):
-        presets = {"Audio extras": {"embed_thumbnail": True}}
-        with patch.dict(
-            os.environ,
-            _base_env(YTDL_OPTIONS_PRESETS=json.dumps(presets)),
-            clear=False,
-        ):
-            c = Config()
-        self.assertEqual(c.YTDL_OPTIONS_PRESETS["Audio extras"]["embed_thumbnail"], True)
 
     def test_invalid_ytdl_options_exits(self):
         with patch.dict(os.environ, _base_env(YTDL_OPTIONS="not-json"), clear=False):

@@ -54,10 +54,8 @@ def _make_info(url: str = "https://example.com/v") -> DownloadInfo:
         codec="auto",
         format="any",
         folder="",
-        custom_name_prefix="",
         error=None,
         entry=None,
-        playlist_item_limit=0,
     )
 
 
@@ -176,8 +174,6 @@ class PersistentQueueTests(unittest.TestCase):
                                     "codec": "auto",
                                     "format": "any",
                                     "folder": "",
-                                    "custom_name_prefix": "",
-                                    "playlist_item_limit": 0,
                                     "status": "pending",
                                     "timestamp": 1,
                                     "entry": {

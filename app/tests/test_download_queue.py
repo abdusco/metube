@@ -25,7 +25,6 @@ def dq_env():
         cfg.TEMP_DIR = dl
         cfg.MAX_CONCURRENT_DOWNLOADS = 3
         cfg.YTDL_OPTIONS = {}
-        cfg.YTDL_OPTIONS_PRESETS = {}
         cfg.CLEAR_COMPLETED_AFTER = 0
         cfg.DELETE_FILE_ON_TRASHCAN = False
         cfg.OUTPUT_TEMPLATE = "%(title)s.%(ext)s"
@@ -44,7 +43,7 @@ def test_get_returns_tuple_of_lists(dq_env):
 def test_add_single_video_queued_immediately(dq_env):
     notifier = MagicMock()
 
-    def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
+    def fake_extract(self, url, ytdl_options_overrides=None):
         return {
             "_type": "video",
             "id": "vid1",
@@ -58,7 +57,7 @@ def test_add_single_video_queued_immediately(dq_env):
     with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract), \
          patch('ytdl.threading.Thread') as MockThread:
         MockThread.return_value = MagicMock()
-        result = dq.add(url, "video", "auto", "any", "best", "", "", 0)
+        result = dq.add(url, "video", "auto", "any", "best", "")
     assert result["status"] == "ok"
     assert dq.queue.exists(url)
 
@@ -66,7 +65,7 @@ def test_add_single_video_queued_immediately(dq_env):
 def test_cancel_removes_from_queue(dq_env):
     notifier = MagicMock()
 
-    def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
+    def fake_extract(self, url, ytdl_options_overrides=None):
         return {
             "_type": "video",
             "id": "vid1",
@@ -80,7 +79,7 @@ def test_cancel_removes_from_queue(dq_env):
     with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract), \
          patch('ytdl.threading.Thread') as MockThread:
         MockThread.return_value = MagicMock()
-        dq.add(url, "video", "auto", "any", "best", "", "", 0)
+        dq.add(url, "video", "auto", "any", "best", "")
 
     dq.cancel([url])
     assert not dq.queue.exists(url)
@@ -92,7 +91,7 @@ def test_cancel_before_start_marks_download_canceled(dq_env):
     must flip canceled=True and remove from queue."""
     notifier = MagicMock()
 
-    def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
+    def fake_extract(self, url, ytdl_options_overrides=None):
         return {
             "_type": "video",
             "id": "vid1",
@@ -106,7 +105,7 @@ def test_cancel_before_start_marks_download_canceled(dq_env):
     with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract), \
          patch('ytdl.threading.Thread') as MockThread:
         MockThread.return_value = MagicMock()
-        dq.add(url, "video", "auto", "any", "best", "", "", 0)
+        dq.add(url, "video", "auto", "any", "best", "")
         assert dq.queue.exists(url)
         download = dq.queue.get(url)
         assert download.canceled is False
@@ -132,21 +131,17 @@ def test_add_entry_queues_single_video_without_reextracting(dq_env):
     with patch.object(DownloadQueue, "_DownloadQueue__extract_info", side_effect=AssertionError("should not re-extract")), \
          patch('ytdl.threading.Thread') as MockThread:
         MockThread.return_value = MagicMock()
-        result = dq.add_entry(entry, "video", "auto", "any", "best", "", "", 0)
+        result = dq.add_entry(entry, "video", "auto", "any", "best", "")
 
     assert result["status"] == "ok"
     assert dq.queue.exists("https://example.com/watch?v=1")
 
 
-def test_add_merges_global_preset_and_override_options(dq_env):
+def test_add_merges_global_and_override_options(dq_env):
     notifier = MagicMock()
     dq_env.YTDL_OPTIONS = {"writesubtitles": False, "cookiefile": "/tmp/global.txt"}
-    dq_env.YTDL_OPTIONS_PRESETS = {
-        "Preset A": {"writesubtitles": True, "proxy": "http://preset-a"},
-        "Preset B": {"writesubtitles": False, "ratelimit": 1000},
-    }
 
-    def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
+    def fake_extract(self, url, ytdl_options_overrides=None):
         return {
             "_type": "video",
             "id": "vid2",
@@ -161,24 +156,20 @@ def test_add_merges_global_preset_and_override_options(dq_env):
          patch('ytdl.threading.Thread') as MockThread:
         MockThread.return_value = MagicMock()
         result = dq.add(
-            url, "video", "auto", "any", "best", "", "", 0,
-            ytdl_options_presets=["Preset A", "Preset B"],
-            ytdl_options_overrides={"proxy": "http://override", "embed_thumbnail": True},
+            url, "video", "auto", "any", "best", "",
+            ytdl_options_overrides={"proxy": "http://override", "embed_thumbnail": True, "ratelimit": 1000},
         )
 
     assert result["status"] == "ok"
     queued = dq.queue.get(url)
     assert queued.ytdl_opts["cookiefile"] == "/tmp/global.txt"
-    assert queued.ytdl_opts["writesubtitles"] is False
     assert queued.ytdl_opts["ratelimit"] == 1000
     assert queued.ytdl_opts["proxy"] == "http://override"
     assert queued.ytdl_opts["embed_thumbnail"] is True
 
 
-def test_extract_info_preset_null_download_archive_overrides_global(dq_env):
-    """Preset download_archive:null must apply during extract_info (global archive otherwise wins first)."""
+def test_extract_info_override_null_download_archive_overrides_global(dq_env):
     dq_env.YTDL_OPTIONS = {"download_archive": "/tmp/archive.txt"}
-    dq_env.YTDL_OPTIONS_PRESETS = {"NoArchive": {"download_archive": None}}
 
     captured_params: list = []
 
@@ -201,9 +192,8 @@ def test_extract_info_preset_null_download_archive_overrides_global(dq_env):
          patch('ytdl.threading.Thread') as MockThread:
         MockThread.return_value = MagicMock()
         result = dq.add(
-            "https://example.com/archive-test",
-            "video", "auto", "any", "best", "", "", 0,
-            ytdl_options_presets=["NoArchive"],
+            "https://example.com/archive-test", "video", "auto", "any", "best", "",
+            ytdl_options_overrides={"download_archive": None},
         )
 
     assert result["status"] == "ok"
@@ -214,12 +204,9 @@ def test_extract_info_preset_null_download_archive_overrides_global(dq_env):
     assert extract_params["noplaylist"] is True
 
 
-def test_extract_info_metube_extract_keys_win_over_preset(dq_env):
-    """MeTube's flat-extract settings must not be overridden by presets."""
+def test_extract_info_metube_extract_keys_win_over_overrides(dq_env):
+    """MeTube's flat-extract settings must not be overridden by overrides."""
     dq_env.YTDL_OPTIONS = {}
-    dq_env.YTDL_OPTIONS_PRESETS = {
-        "TryOverride": {"extract_flat": False, "noplaylist": False},
-    }
 
     captured_params: list = []
 
@@ -242,9 +229,8 @@ def test_extract_info_metube_extract_keys_win_over_preset(dq_env):
          patch('ytdl.threading.Thread') as MockThread:
         MockThread.return_value = MagicMock()
         result = dq.add(
-            "https://example.com/flat-test",
-            "video", "auto", "any", "best", "", "", 0,
-            ytdl_options_presets=["TryOverride"],
+            "https://example.com/flat-test", "video", "auto", "any", "best", "",
+            ytdl_options_overrides={"extract_flat": False, "noplaylist": False},
         )
 
     assert result["status"] == "ok"
@@ -290,10 +276,8 @@ def test_download_info_to_public_dict_excludes_server_only_fields():
         codec="auto",
         format="any",
         folder="",
-        custom_name_prefix="",
         error=None,
         entry={"id": "vid1", "huge": "x" * 100000},
-        playlist_item_limit=0,
     )
     info.subtitle_files = [{"filename": "a.srt", "size": 10}]
     public = info.to_public_dict()
