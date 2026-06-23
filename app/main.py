@@ -9,9 +9,6 @@ from pathlib import Path
 from typing import Any
 from aiohttp import web
 from aiohttp.web import GracefulExit
-from aiohttp.log import access_logger
-import ssl
-import socket
 import logging
 import json
 import re
@@ -52,10 +49,8 @@ class Config:
         'DOWNLOAD_DIR': '.',
         'AUDIO_DOWNLOAD_DIR': '',
         'TEMP_DIR': '',
-        'DOWNLOAD_DIRS_INDEXABLE': 'false',
         'DELETE_FILE_ON_TRASHCAN': 'false',
         'STATE_DIR': '.',
-        'URL_PREFIX': '',
         'PUBLIC_HOST_URL': 'download/',
         'PUBLIC_HOST_AUDIO_URL': 'audio_download/',
         'OUTPUT_TEMPLATE': '%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s',
@@ -68,21 +63,15 @@ class Config:
         'YTDL_OPTIONS_PRESETS': '{}',
         'ALLOW_YTDL_OPTIONS_OVERRIDES': 'false',
         'CORS_ALLOWED_ORIGINS': '',
-        'ROBOTS_TXT': '',
         'HOST': '0.0.0.0',
         'PORT': '8081',
-        'HTTPS': 'false',
-        'CERTFILE': '',
-        'KEYFILE': '',
         'BASE_DIR': '',
-        'DEFAULT_THEME': 'auto',
         'MAX_CONCURRENT_DOWNLOADS': '3',
         'LOGLEVEL': 'INFO',
-        'ENABLE_ACCESSLOG': 'false',
         'YTDL_NIGHTLY_UPDATE_TIME': '',
     }
 
-    _BOOLEAN = ('DOWNLOAD_DIRS_INDEXABLE', 'DELETE_FILE_ON_TRASHCAN', 'HTTPS', 'ENABLE_ACCESSLOG', 'ALLOW_YTDL_OPTIONS_OVERRIDES')
+    _BOOLEAN = ('DELETE_FILE_ON_TRASHCAN', 'ALLOW_YTDL_OPTIONS_OVERRIDES')
 
     def __init__(self):
         for k, v in self._DEFAULTS.items():
@@ -99,9 +88,6 @@ class Config:
                     log.error(f'Environment variable "{k}" is set to a non-boolean value "{v}"')
                     sys.exit(1)
                 setattr(self, k, v in ('true', 'True', '1'))
-
-        if not self.URL_PREFIX.endswith('/'):
-            self.URL_PREFIX += '/'
 
         # A blank PUBLIC_HOST_AUDIO_URL (e.g. set empty in a compose file) bypasses the
         # default via os.environ.get, which would leave audio links root-relative and 404.
@@ -262,8 +248,8 @@ def _is_within_state_dir(target: str | Path) -> bool:
 @web.middleware
 async def state_dir_guard(request: web.Request, handler: Any) -> web.StreamResponse:
     for prefix, base in (
-        (config.URL_PREFIX + 'download/', config.DOWNLOAD_DIR),
-        (config.URL_PREFIX + 'audio_download/', config.AUDIO_DOWNLOAD_DIR),
+        ('/download/', config.DOWNLOAD_DIR),
+        ('/audio_download/', config.AUDIO_DOWNLOAD_DIR),
     ):
         if request.path.startswith(prefix):
             rel = unquote(request.path[len(prefix):])
@@ -473,7 +459,7 @@ def parse_download_options(post: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@routes.post(config.URL_PREFIX + 'add')
+@routes.post('/add')
 async def add(request: web.Request) -> web.Response:
     log.info("Received request to add download")
     post = await _read_json_request(request)
@@ -507,14 +493,14 @@ async def add(request: web.Request) -> web.Response:
     return web.Response(text=serializer.encode(status))
 
 
-@routes.get(config.URL_PREFIX + 'presets')
+@routes.get('/presets')
 async def presets(request: web.Request) -> web.Response:
     return web.Response(
         text=serializer.encode({'presets': sorted(config.YTDL_OPTIONS_PRESETS.keys())}),
         content_type='application/json',
     )
 
-@routes.post(config.URL_PREFIX + 'delete')
+@routes.post('/delete')
 async def delete(request: web.Request) -> web.Response:
     post = await _read_json_request(request)
     ids = post.get('ids')
@@ -528,7 +514,7 @@ async def delete(request: web.Request) -> web.Response:
 
 COOKIES_PATH = Path(config.STATE_DIR) / 'cookies.txt'
 
-@routes.post(config.URL_PREFIX + 'cookies')
+@routes.post('/cookies')
 async def upload_cookies(request: web.Request) -> web.Response:
     reader = await request.multipart()
     field = await reader.next()
@@ -560,7 +546,7 @@ async def upload_cookies(request: web.Request) -> web.Response:
     log.info(f'Cookies file uploaded ({size} bytes)')
     return web.Response(text=serializer.encode({'status': 'ok', 'msg': f'Cookies uploaded ({size} bytes)'}))
 
-@routes.delete(config.URL_PREFIX + 'cookies')
+@routes.delete('/cookies')
 async def delete_cookies(request: web.Request) -> web.Response:
     has_uploaded_cookies = COOKIES_PATH.exists()
     configured_cookiefile = config.YTDL_OPTIONS.get('cookiefile')
@@ -587,7 +573,7 @@ async def delete_cookies(request: web.Request) -> web.Response:
     log.info('Cookies file deleted')
     return web.Response(text=serializer.encode({'status': 'ok'}))
 
-@routes.get(config.URL_PREFIX + 'cookies')
+@routes.get('/cookies')
 async def cookie_status(request: web.Request) -> web.Response:
     configured_cookiefile = config.YTDL_OPTIONS.get('cookiefile')
     has_configured_cookies = isinstance(configured_cookiefile, str) and Path(configured_cookiefile).exists()
@@ -595,12 +581,12 @@ async def cookie_status(request: web.Request) -> web.Response:
     exists = has_uploaded_cookies or has_configured_cookies
     return web.Response(text=serializer.encode({'status': 'ok', 'has_cookies': exists}))
 
-@routes.get(config.URL_PREFIX + 'queue')
+@routes.get('/queue')
 async def queue_state(request: web.Request) -> web.Response:
     state = dqueue.get()
     return web.Response(text=serializer.encode(state), content_type='application/json')
 
-@routes.get(config.URL_PREFIX + 'logs')
+@routes.get('/logs')
 async def get_logs(request: web.Request) -> web.Response:
     dl_id = request.query.get('id')
     if not dl_id:
@@ -613,39 +599,17 @@ async def get_logs(request: web.Request) -> web.Response:
     lines = dl.info.logs if dl is not None else []
     return web.Response(text=serializer.encode(lines), content_type='application/json')
 
-@routes.get(config.URL_PREFIX + 'configuration')
+@routes.get('/configuration')
 async def configuration(request: web.Request) -> web.Response:
     return web.Response(text=serializer.encode(config.frontend_safe()), content_type='application/json')
 
-@routes.get(config.URL_PREFIX)
+@routes.get('/')
 async def index(request: web.Request) -> web.Response:
-    response = web.FileResponse(Path(config.BASE_DIR) / 'ui/index.html')
-    if 'metube_theme' not in request.cookies:
-        response.set_cookie('metube_theme', config.DEFAULT_THEME)
-    return response
+    return web.FileResponse(Path(config.BASE_DIR) / 'ui/index.html')
 
-@routes.get(config.URL_PREFIX + 'robots.txt')
-async def robots(request: web.Request) -> web.Response:
-    if config.ROBOTS_TXT:
-        response = web.FileResponse(Path(config.BASE_DIR) / config.ROBOTS_TXT)
-    else:
-        response = web.Response(
-            text="User-agent: *\nDisallow: /download/\nDisallow: /audio_download/\n"
-        )
-    return response
-
-if config.URL_PREFIX != '/':
-    @routes.get('/')
-    async def index_redirect_root(request):
-        return web.HTTPFound(config.URL_PREFIX)
-
-    @routes.get(config.URL_PREFIX[:-1])
-    async def index_redirect_dir(request):
-        return web.HTTPFound(config.URL_PREFIX)
-
-routes.static(config.URL_PREFIX + 'download/', config.DOWNLOAD_DIR, show_index=config.DOWNLOAD_DIRS_INDEXABLE)
-routes.static(config.URL_PREFIX + 'audio_download/', config.AUDIO_DOWNLOAD_DIR, show_index=config.DOWNLOAD_DIRS_INDEXABLE)
-routes.static(config.URL_PREFIX, Path(config.BASE_DIR) / 'ui')
+routes.static('/download/', config.DOWNLOAD_DIR)
+routes.static('/audio_download/', config.AUDIO_DOWNLOAD_DIR)
+routes.static('/', Path(config.BASE_DIR) / 'ui')
 try:
     app.add_routes(routes)
 except ValueError as e:
@@ -654,13 +618,13 @@ except ValueError as e:
     raise e
 
 # https://github.com/aio-libs/aiohttp/pull/4615 waiting for release
-# @routes.options(config.URL_PREFIX + 'add')
+# @routes.options('add')
 async def add_cors(request):
     return web.Response(text=serializer.encode({"status": "ok"}))
 
-app.router.add_route('OPTIONS', config.URL_PREFIX + 'add', add_cors)
-app.router.add_route('OPTIONS', config.URL_PREFIX + 'cookies', add_cors)
-app.router.add_route('OPTIONS', config.URL_PREFIX + 'logs', add_cors)
+app.router.add_route('OPTIONS', '/add', add_cors)
+app.router.add_route('OPTIONS', '/cookies', add_cors)
+app.router.add_route('OPTIONS', '/logs', add_cors)
 
 async def on_prepare(request: web.Request, response: web.StreamResponse) -> None:
     origin = request.headers.get('Origin')
@@ -670,35 +634,14 @@ async def on_prepare(request: web.Request, response: web.StreamResponse) -> None
 
 app.on_response_prepare.append(on_prepare)
 
-def supports_reuse_port() -> bool:
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        sock.close()
-        return True
-    except (AttributeError, OSError):
-        return False
-
-def is_access_log_enabled() -> logging.Logger | None:
-    if config.ENABLE_ACCESSLOG:
-        return access_logger
-    return None
-
 if __name__ == '__main__':
     logging.getLogger().setLevel(parse_log_level(config.LOGLEVEL) or logging.INFO)
     log.info(f"Listening on {config.HOST}:{config.PORT}")
 
-
-    # Auto-detect cookie file on startup
     if COOKIES_PATH.exists():
         config.set_runtime_override('cookiefile', str(COOKIES_PATH))
         log.info(f'Cookie file detected at {COOKIES_PATH}')
 
-    if config.HTTPS:
-        ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        ssl_context.load_cert_chain(certfile=config.CERTFILE, keyfile=config.KEYFILE)
-        web.run_app(app, host=config.HOST, port=int(config.PORT), reuse_port=supports_reuse_port(), ssl_context=ssl_context, access_log=is_access_log_enabled())
-    else:
-        web.run_app(app, host=config.HOST, port=int(config.PORT), reuse_port=supports_reuse_port(), access_log=is_access_log_enabled())
+    web.run_app(app, host=config.HOST, port=int(config.PORT))
     if _RESTART_FOR_UPDATE:
         sys.exit(42)

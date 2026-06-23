@@ -18,11 +18,6 @@ def _base_env(**overrides: str) -> dict[str, str]:
 
 
 class ConfigTests(unittest.TestCase):
-    def test_url_prefix_gets_trailing_slash(self):
-        with patch.dict(os.environ, _base_env(URL_PREFIX="foo"), clear=False):
-            c = Config()
-        self.assertEqual(c.URL_PREFIX, "foo/")
-
     def test_public_host_url_gets_trailing_slash(self):
         with patch.dict(
             os.environ,
