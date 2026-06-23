@@ -26,8 +26,6 @@ def dq_env():
         cfg.MAX_CONCURRENT_DOWNLOADS = "3"
         cfg.YTDL_OPTIONS = {}
         cfg.YTDL_OPTIONS_PRESETS = {}
-        cfg.CUSTOM_DIRS = True
-        cfg.CREATE_CUSTOM_DIRS = True
         cfg.CLEAR_COMPLETED_AFTER = "0"
         cfg.DELETE_FILE_ON_TRASHCAN = False
         cfg.OUTPUT_TEMPLATE = "%(title)s.%(ext)s"
