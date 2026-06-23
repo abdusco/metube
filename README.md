@@ -56,7 +56,6 @@ Certain values can be set via environment variables, using the `-e` parameter on
 ### 📝 File Naming & yt-dlp
 
 * __OUTPUT_TEMPLATE__: The template for the filenames of the downloaded videos, formatted according to [this spec](https://github.com/yt-dlp/yt-dlp/blob/master/README.md#output-template). Defaults to `%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s`.
-* __OUTPUT_TEMPLATE_CHAPTER__: The template for the filenames of the downloaded videos when split into chapters via postprocessors. Defaults to `%(title)s - %(section_number)s %(section_title)s.%(ext)s`.
 * __OUTPUT_TEMPLATE_PLAYLIST__: The template for the filenames of the downloaded videos when downloaded as a playlist. Defaults to `%(playlist_title)s/%(title)s.%(ext)s`. Set to empty to use `OUTPUT_TEMPLATE` instead.
 * __OUTPUT_TEMPLATE_CHANNEL__: The template for the filenames of the downloaded videos when downloaded as a channel. Defaults to `%(channel)s/%(title)s.%(ext)s`. Set to empty to use `OUTPUT_TEMPLATE` instead.
 * __YTDL_OPTIONS__: Additional options to pass to yt-dlp, as a JSON object. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options) for details, examples, and available options reference.

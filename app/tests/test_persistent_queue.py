@@ -58,8 +58,6 @@ def _make_info(url: str = "https://example.com/v") -> DownloadInfo:
         error=None,
         entry=None,
         playlist_item_limit=0,
-        split_by_chapters=False,
-        chapter_template="",
     )
 
 
@@ -210,8 +208,6 @@ class PersistentQueueTests(unittest.TestCase):
                                     "folder": "",
                                     "custom_name_prefix": "",
                                     "playlist_item_limit": 0,
-                                    "split_by_chapters": False,
-                                    "chapter_template": "",
                                     "subtitle_mode": "prefer_manual",
                                     "status": "pending",
                                     "timestamp": 1,

@@ -160,8 +160,6 @@ class DownloadInfo:
         error,
         entry,
         playlist_item_limit,
-        split_by_chapters,
-        chapter_template,
         subtitle_mode="prefer_manual",
         subtitle_langs=None,
         ytdl_options_presets=None,
@@ -186,8 +184,6 @@ class DownloadInfo:
         # Strip non-pickleable values (generators, iterators, locks, etc.) for shelve
         self.entry = _sanitize_entry_for_pickle(entry) if entry is not None else None
         self.playlist_item_limit = playlist_item_limit
-        self.split_by_chapters = split_by_chapters
-        self.chapter_template = chapter_template
         self.subtitle_mode = subtitle_mode
         self.subtitle_langs = list(subtitle_langs) if subtitle_langs else []
         self.ytdl_options_presets = list(ytdl_options_presets or [])
@@ -220,10 +216,6 @@ class DownloadInfo:
             self.custom_name_prefix = ""
         if not hasattr(self, "playlist_item_limit"):
             self.playlist_item_limit = 0
-        if not hasattr(self, "split_by_chapters"):
-            self.split_by_chapters = False
-        if not hasattr(self, "chapter_template"):
-            self.chapter_template = ""
         if not hasattr(self, "subtitle_mode"):
             self.subtitle_mode = "prefer_manual"
         if not hasattr(self, "subtitle_langs"):
@@ -242,8 +234,6 @@ class DownloadInfo:
             self.entry = None
         if not hasattr(self, "subtitle_files"):
             self.subtitle_files = []
-        if not hasattr(self, "chapter_files"):
-            self.chapter_files = []
         if not hasattr(self, "live_status"):
             self.live_status = None
         if not hasattr(self, "live_release_timestamp"):
@@ -263,8 +253,6 @@ _PERSISTED_DOWNLOAD_FIELDS = (
     "folder",
     "custom_name_prefix",
     "playlist_item_limit",
-    "split_by_chapters",
-    "chapter_template",
     "subtitle_mode",
     "subtitle_langs",
     "ytdl_options_presets",
@@ -277,7 +265,6 @@ _PERSISTED_DOWNLOAD_FIELDS = (
     "msg",
     "filename",
     "size",
-    "chapter_files",
     "subtitle_files",
 )
 
@@ -342,11 +329,10 @@ class Download:
             cls.manager.shutdown()
             cls.manager = None
 
-    def __init__(self, download_dir, temp_dir, output_template, output_template_chapter, quality, format, ytdl_opts, info):
+    def __init__(self, download_dir, temp_dir, output_template, quality, format, ytdl_opts, info):
         self.download_dir = download_dir
         self.temp_dir = temp_dir
         self.output_template = output_template
-        self.output_template_chapter = output_template_chapter
         self.info = info
         self.format = get_format(
             getattr(info, 'download_type', 'video'),
@@ -404,17 +390,6 @@ class Download:
                         if isinstance(subtitle, dict) and subtitle.get('filepath'):
                             self.status_queue.put({'subtitle_file': subtitle['filepath']})
 
-                # Capture all chapter files when SplitChapters finishes
-                elif d.get('postprocessor') == 'SplitChapters' and d.get('status') == 'finished':
-                    chapters = d.get('info_dict', {}).get('chapters', [])
-                    if chapters:
-                        for chapter in chapters:
-                            if isinstance(chapter, dict) and 'filepath' in chapter:
-                                log.info(f"Captured chapter file: {chapter['filepath']}")
-                                self.status_queue.put({'chapter_file': chapter['filepath']})
-                    else:
-                        log.warning("SplitChapters finished but no chapter files found in info_dict")
-
             _sq = self.status_queue
             class _YtdlLogger:
                 def debug(self, msg):
@@ -435,7 +410,7 @@ class Download:
                 'verbose': debug_logging,
                 'no_color': True,
                 'paths': {"home": self.download_dir, "temp": self.temp_dir},
-                'outtmpl': { "default": self.output_template, "chapter": self.output_template_chapter },
+                'outtmpl': { "default": self.output_template },
                 'format': self.format,
                 'socket_timeout': 30,
                 'ignore_no_formats_error': True,
@@ -443,16 +418,6 @@ class Download:
                 'postprocessor_hooks': [put_status_postprocessor],
                 'logger': _YtdlLogger(),
             }
-
-            # Add chapter splitting options if enabled
-            if self.info.split_by_chapters:
-                ytdl_params['outtmpl']['chapter'] = self.info.chapter_template
-                if 'postprocessors' not in ytdl_params:
-                    ytdl_params['postprocessors'] = []
-                ytdl_params['postprocessors'].append({
-                    'key': 'FFmpegSplitChapters',
-                    'force_keyframes': False
-                })
 
             ret = yt_dlp.YoutubeDL(params=ytdl_params).download([self.info.url])
             self.status_queue.put({'status': 'finished' if ret == 0 else 'error'})
@@ -535,21 +500,7 @@ class Download:
                     # (.webm/.mp4/.png/.webp/...). Normalise to .jpg regardless.
                     self.info.filename = os.path.splitext(self.info.filename)[0] + '.jpg'
 
-            # Handle chapter files
             log.debug(f"Update status for {self.info.title}: {status}")
-            if 'chapter_file' in status:
-                chapter_file = status.get('chapter_file')
-                if not hasattr(self.info, 'chapter_files'):
-                    self.info.chapter_files = []
-                rel_path = os.path.relpath(chapter_file, self.download_dir)
-                file_size = os.path.getsize(chapter_file) if os.path.exists(chapter_file) else None
-                #Postprocessor hook called multiple times with chapters. Only insert if not already present.
-                existing = next((cf for cf in self.info.chapter_files if cf['filename'] == rel_path), None)
-                if not existing:
-                    self.info.chapter_files.append({'filename': rel_path, 'size': file_size})
-                # Skip the rest of status processing for chapter files
-                continue
-
             if 'subtitle_file' in status:
                 subtitle_file = status.get('subtitle_file')
                 if not subtitle_file:
@@ -589,7 +540,7 @@ class PersistentQueue:
 
     def load(self):
         for k, v in self.saved_items():
-            self.dict[k] = Download(None, None, None, None, getattr(v, 'quality', 'best'), getattr(v, 'format', 'any'), {}, v)
+            self.dict[k] = Download(None, None, None, getattr(v, 'quality', 'best'), getattr(v, 'format', 'any'), {}, v)
 
     def exists(self, key):
         return key in self.dict
@@ -983,7 +934,6 @@ class DownloadQueue:
         if error_message is not None:
             return error_message
         output = self.config.OUTPUT_TEMPLATE if len(dl.custom_name_prefix) == 0 else f'{dl.custom_name_prefix}.{self.config.OUTPUT_TEMPLATE}'
-        output_chapter = self.config.OUTPUT_TEMPLATE_CHAPTER
         entry = getattr(dl, 'entry', None)
         if entry is not None and entry.get('playlist_index') is not None:
             if len(self.config.OUTPUT_TEMPLATE_PLAYLIST):
@@ -1003,7 +953,7 @@ class DownloadQueue:
         if playlist_item_limit > 0:
             log.info(f'playlist limit is set. Processing only first {playlist_item_limit} entries')
             ytdl_options['playlistend'] = playlist_item_limit
-        download = Download(dldirectory, self.config.TEMP_DIR, output, output_chapter, dl.quality, dl.format, ytdl_options, dl)
+        download = Download(dldirectory, self.config.TEMP_DIR, output, dl.quality, dl.format, ytdl_options, dl)
         is_upcoming = (
             getattr(dl, 'live_status', None) == 'is_upcoming'
             or getattr(dl, 'status', None) == 'scheduled'
@@ -1029,8 +979,6 @@ class DownloadQueue:
         custom_name_prefix,
         playlist_item_limit,
         auto_start,
-        split_by_chapters,
-        chapter_template,
         subtitle_mode,
         subtitle_langs,
         ytdl_options_presets,
@@ -1063,8 +1011,6 @@ class DownloadQueue:
                 custom_name_prefix,
                 playlist_item_limit,
                 auto_start,
-                split_by_chapters,
-                chapter_template,
                 subtitle_mode,
                 subtitle_langs,
                 ytdl_options_presets,
@@ -1114,8 +1060,6 @@ class DownloadQueue:
                         custom_name_prefix,
                         playlist_item_limit,
                         auto_start,
-                        split_by_chapters,
-                        chapter_template,
                         subtitle_mode,
                         subtitle_langs,
                         ytdl_options_presets,
@@ -1147,8 +1091,6 @@ class DownloadQueue:
                     error=error,
                     entry=entry,
                     playlist_item_limit=playlist_item_limit,
-                    split_by_chapters=split_by_chapters,
-                    chapter_template=chapter_template,
                     subtitle_mode=subtitle_mode,
                     subtitle_langs=subtitle_langs,
                     ytdl_options_presets=ytdl_options_presets,
@@ -1171,8 +1113,6 @@ class DownloadQueue:
         custom_name_prefix,
         playlist_item_limit,
         auto_start=True,
-        split_by_chapters=False,
-        chapter_template=None,
         subtitle_mode="prefer_manual",
         subtitle_langs=None,
         ytdl_options_presets=None,
@@ -1184,8 +1124,7 @@ class DownloadQueue:
             ytdl_options_presets = []
         log.info(
             f'adding {url}: {download_type=} {codec=} {format=} {quality=} {already=} {folder=} {custom_name_prefix=} '
-            f'{playlist_item_limit=} {auto_start=} {split_by_chapters=} {chapter_template=} '
-            f'{subtitle_mode=} {subtitle_langs=} {ytdl_options_presets=}'
+            f'{playlist_item_limit=} {auto_start=} {subtitle_mode=} {subtitle_langs=} {ytdl_options_presets=}'
         )
         if already is None:
             _add_gen = self._add_generation
@@ -1213,8 +1152,6 @@ class DownloadQueue:
             custom_name_prefix,
             playlist_item_limit,
             auto_start,
-            split_by_chapters,
-            chapter_template,
             subtitle_mode,
             subtitle_langs or [],
             ytdl_options_presets,
@@ -1234,8 +1171,6 @@ class DownloadQueue:
         custom_name_prefix,
         playlist_item_limit,
         auto_start=True,
-        split_by_chapters=False,
-        chapter_template=None,
         subtitle_mode="prefer_manual",
         subtitle_langs=None,
         ytdl_options_presets=None,
@@ -1255,8 +1190,6 @@ class DownloadQueue:
             custom_name_prefix,
             playlist_item_limit,
             auto_start,
-            split_by_chapters,
-            chapter_template,
             subtitle_mode,
             subtitle_langs or [],
             ytdl_options_presets,
@@ -1322,9 +1255,6 @@ class DownloadQueue:
                     rel_names = []
                     if getattr(dl.info, 'filename', None):
                         rel_names.append(dl.info.filename)
-                    for extra in (getattr(dl.info, 'chapter_files', None) or []):
-                        if isinstance(extra, dict) and extra.get('filename'):
-                            rel_names.append(extra['filename'])
                     for extra in (getattr(dl.info, 'subtitle_files', None) or []):
                         if isinstance(extra, dict) and extra.get('filename'):
                             rel_names.append(extra['filename'])

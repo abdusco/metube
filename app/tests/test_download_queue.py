@@ -32,7 +32,6 @@ def dq_env():
         cfg.CLEAR_COMPLETED_AFTER = "0"
         cfg.DELETE_FILE_ON_TRASHCAN = False
         cfg.OUTPUT_TEMPLATE = "%(title)s.%(ext)s"
-        cfg.OUTPUT_TEMPLATE_CHAPTER = "%(title)s.%(ext)s"
         cfg.OUTPUT_TEMPLATE_PLAYLIST = ""
         cfg.OUTPUT_TEMPLATE_CHANNEL = ""
         yield cfg
@@ -459,8 +458,6 @@ async def test_import_scheduled_re_registers_monitor(dq_env):
         error=None,
         entry=None,
         playlist_item_limit=0,
-        split_by_chapters=False,
-        chapter_template="",
         live_status="is_upcoming",
         live_release_timestamp=release,
     )
@@ -641,8 +638,6 @@ def test_download_info_to_public_dict_excludes_server_only_fields():
         error=None,
         entry={"id": "vid1", "huge": "x" * 100000},
         playlist_item_limit=0,
-        split_by_chapters=False,
-        chapter_template="",
     )
     info.subtitle_files = [{"filename": "a.srt", "size": 10}]
     public = info.to_public_dict()

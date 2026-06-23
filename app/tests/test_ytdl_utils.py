@@ -168,8 +168,6 @@ class DownloadInfoSetstateTests(unittest.TestCase):
             "error": None,
             "entry": None,
             "playlist_item_limit": 0,
-            "split_by_chapters": False,
-            "chapter_template": "",
             "msg": None,
             "percent": None,
             "speed": None,
@@ -202,15 +200,11 @@ class DownloadInfoSetstateTests(unittest.TestCase):
         state.pop("folder")
         state.pop("custom_name_prefix")
         state.pop("playlist_item_limit")
-        state.pop("split_by_chapters")
-        state.pop("chapter_template")
         di = DownloadInfo.__new__(DownloadInfo)
         di.__setstate__(state)
         self.assertEqual(di.folder, "")
         self.assertEqual(di.custom_name_prefix, "")
         self.assertEqual(di.playlist_item_limit, 0)
-        self.assertFalse(di.split_by_chapters)
-        self.assertEqual(di.chapter_template, "")
 
 
 class CompactPersistedEntryTests(unittest.TestCase):
