@@ -393,7 +393,7 @@ class Download:
                 'quiet': not debug_logging,
                 'verbose': debug_logging,
                 'no_color': True,
-                'paths': {"home": self.download_dir, "temp": self.temp_dir},
+                'paths': {"home": str(self.download_dir), "temp": str(self.temp_dir)},
                 'outtmpl': { "default": self.output_template },
                 'format': self.format,
                 'socket_timeout': 30,
