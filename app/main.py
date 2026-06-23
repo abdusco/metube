@@ -15,7 +15,6 @@ import logging
 import json
 import re
 from urllib.parse import unquote
-from watchfiles import DefaultFilter, Change, awatch
 
 from ytdl import DownloadQueueNotifier, DownloadQueue, Download
 from yt_dlp.version import __version__ as yt_dlp_version
@@ -445,58 +444,6 @@ async def _start_nightly_update_schedule(app):
 
 
 app.on_startup.append(_start_nightly_update_schedule)
-
-class FileOpsFilter(DefaultFilter):
-    def __call__(self, change_type: int, path: str) -> bool:
-        # Check if this path matches our YTDL_OPTIONS_FILE
-        if path != config.YTDL_OPTIONS_FILE:
-            return False
-
-        # For existing files, use samefile comparison to handle symlinks correctly
-        if os.path.exists(config.YTDL_OPTIONS_FILE):
-            try:
-                if not os.path.samefile(path, config.YTDL_OPTIONS_FILE):
-                    return False
-            except (OSError, IOError):
-                # If samefile fails, fall back to string comparison
-                if path != config.YTDL_OPTIONS_FILE:
-                    return False
-
-        # Accept all change types for our file: modified, added, deleted
-        return change_type in (Change.modified, Change.added, Change.deleted)
-
-def get_options_update_time(success=True, msg=''):
-    result = {
-        'success': success,
-        'msg': msg,
-        'update_time': None
-    }
-
-    # Only try to get file modification time if YTDL_OPTIONS_FILE is set and file exists
-    if config.YTDL_OPTIONS_FILE and os.path.exists(config.YTDL_OPTIONS_FILE):
-        try:
-            result['update_time'] = os.path.getmtime(config.YTDL_OPTIONS_FILE)
-        except (OSError, IOError) as e:
-            log.warning(f"Could not get modification time for {config.YTDL_OPTIONS_FILE}: {e}")
-            result['update_time'] = None
-
-    return result
-
-async def watch_files():
-    async def _watch_files():
-        async for changes in awatch(config.YTDL_OPTIONS_FILE, watch_filter=FileOpsFilter()):
-            success, msg = config.load_ytdl_options()
-            get_options_update_time(success, msg)
-
-    log.info(f'Starting Watch File: {config.YTDL_OPTIONS_FILE}')
-    asyncio.create_task(_watch_files())
-
-async def _watch_files_startup(app):
-    await watch_files()
-
-
-if config.YTDL_OPTIONS_FILE:
-    app.on_startup.append(_watch_files_startup)
 
 
 async def _read_json_request(request: web.Request) -> dict:

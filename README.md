@@ -60,7 +60,7 @@ Certain values can be set via environment variables, using the `-e` parameter on
 * __OUTPUT_TEMPLATE_PLAYLIST__: The template for the filenames of the downloaded videos when downloaded as a playlist. Defaults to `%(playlist_title)s/%(title)s.%(ext)s`. Set to empty to use `OUTPUT_TEMPLATE` instead.
 * __OUTPUT_TEMPLATE_CHANNEL__: The template for the filenames of the downloaded videos when downloaded as a channel. Defaults to `%(channel)s/%(title)s.%(ext)s`. Set to empty to use `OUTPUT_TEMPLATE` instead.
 * __YTDL_OPTIONS__: Additional options to pass to yt-dlp, as a JSON object. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options) for details, examples, and available options reference.
-* __YTDL_OPTIONS_FILE__: Path to a JSON file containing yt-dlp options. Monitored and reloaded automatically on changes. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options).
+* __YTDL_OPTIONS_FILE__: Path to a JSON file containing yt-dlp options. Loaded on startup. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options).
 * __YTDL_OPTIONS_PRESETS__: Named bundles of yt-dlp options, selectable per download in the UI. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options) for format and examples.
 * __YTDL_OPTIONS_PRESETS_FILE__: Path to a JSON file containing presets. Monitored and reloaded automatically on changes. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options).
 * __ALLOW_YTDL_OPTIONS_OVERRIDES__: Whether to show a free-text field in the UI for per-download yt-dlp option overrides. Defaults to `false`. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options) for details and security considerations.
@@ -137,7 +137,7 @@ where `ytdl-options.json` contains:
 }
 ```
 
-The file is monitored for changes and reloaded automatically — no container restart needed. If you use both methods and they define the same key, the **file takes precedence**.
+The file is loaded on startup. If you use both methods and they define the same key, the **file takes precedence**.
 
 ### Presets
 
@@ -146,7 +146,7 @@ Presets let you define named bundles of options that appear in the web UI under 
 Like global options, presets can be set inline or via a file:
 
 * `YTDL_OPTIONS_PRESETS` — a JSON object where each key is a preset name and its value is a set of yt-dlp options.
-* `YTDL_OPTIONS_PRESETS_FILE` — path to a JSON file containing presets, monitored and reloaded on changes.
+* `YTDL_OPTIONS_PRESETS_FILE` — path to a JSON file containing presets, loaded on startup.
 
 If both are used and they define a preset with the same name, the **file's version takes precedence**.
 

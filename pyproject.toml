@@ -8,7 +8,6 @@ dependencies = [
     "yt-dlp[default,curl-cffi,deno]",
     "mutagen",
     "curl-cffi",
-    "watchfiles",
 ]
 
 [dependency-groups]
