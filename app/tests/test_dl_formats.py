@@ -27,10 +27,6 @@ class DlFormatsTests(unittest.TestCase):
     def test_custom_format_passthrough(self):
         self.assertEqual(get_format("video", "auto", "custom:bestvideo+bestaudio", "best"), "bestvideo+bestaudio")
 
-    def test_thumbnail_and_captions_format_strings(self):
-        self.assertEqual(get_format("thumbnail", "auto", "jpg", "best"), "bestaudio/best")
-        self.assertEqual(get_format("captions", "auto", "srt", "best"), "bestaudio/best")
-
     def test_audio_formats(self):
         for fmt in ("m4a", "mp3", "opus", "wav", "flac"):
             with self.subTest(fmt=fmt):
@@ -78,29 +74,6 @@ class DlFormatsTests(unittest.TestCase):
         opts = get_opts("audio", "mp3", "192", {})
         ext = next(p for p in opts["postprocessors"] if p["key"] == "FFmpegExtractAudio")
         self.assertEqual(ext["preferredquality"], "192")
-
-    def test_get_opts_thumbnail_skip_download(self):
-        opts = get_opts("thumbnail", "jpg", "best", {})
-        self.assertTrue(opts.get("skip_download"))
-        self.assertTrue(opts.get("writethumbnail"))
-
-    def test_get_opts_captions_subtitle_langs(self):
-        opts = get_opts(
-            "captions", "srt", "best", {}, subtitle_langs=["it"]
-        )
-        self.assertTrue(opts.get("writesubtitles"))
-        self.assertTrue(opts.get("writeautomaticsub"))
-        self.assertEqual(opts["subtitleslangs"], ["it", "it-orig"])
-
-    def test_get_opts_captions_multi_lang(self):
-        opts = get_opts(
-            "captions", "srt", "best", {}, subtitle_langs=["en", "de"]
-        )
-        self.assertEqual(opts["subtitleslangs"], ["en", "en-orig", "de", "de-orig"])
-
-    def test_get_opts_captions_empty_langs_defaults_en(self):
-        opts = get_opts("captions", "srt", "best", {})
-        self.assertEqual(opts["subtitleslangs"], ["en", "en-orig"])
 
     def test_get_opts_video_subtitle_langs(self):
         opts = get_opts("video", "mp4", "best", {}, subtitle_langs=["en", "de"])

@@ -80,14 +80,6 @@ class AddRequestTests(unittest.TestCase):
         req = main.AddRequest.model_validate({**self._base, "ytdl_options_presets": ["A", "B"]})
         self.assertEqual(req.ytdl_options_presets, ["A", "B"])
 
-    def test_captions_forces_best_quality(self):
-        req = main.AddRequest.model_validate({**self._base, "download_type": "captions", "quality": "720"})
-        self.assertEqual(req.quality, "best")
-
-    def test_thumbnail_forces_best_quality(self):
-        req = main.AddRequest.model_validate({**self._base, "download_type": "thumbnail", "quality": "720"})
-        self.assertEqual(req.quality, "best")
-
     def test_audio_forces_auto_codec(self):
         req = main.AddRequest.model_validate({
             "url": "https://example.com/v",

@@ -15,7 +15,7 @@ def get_format(download_type: str, codec: str, format: str, quality: str) -> str
     Returns yt-dlp format selector.
 
     Args:
-      download_type (str): selected content type (video, audio, captions, thumbnail)
+      download_type (str): selected content type (video, audio)
       codec (str): selected video codec (auto, h264, h265, av1, vp9)
       format (str): selected output format/profile for type
       quality (str): selected quality
@@ -33,12 +33,6 @@ def get_format(download_type: str, codec: str, format: str, quality: str) -> str
 
     if format.startswith("custom:"):
         return format[7:]
-
-    if download_type == "thumbnail":
-        return "bestaudio/best"
-
-    if download_type == "captions":
-        return "bestaudio/best"
 
     if download_type == "audio":
         if format not in AUDIO_FORMATS:
@@ -108,19 +102,6 @@ def get_opts(
             )
             postprocessors.append({"key": "FFmpegMetadata"})
             postprocessors.append({"key": "EmbedThumbnail"})
-
-    if download_type == "thumbnail":
-        opts["skip_download"] = True
-        opts["writethumbnail"] = True
-        postprocessors.append({"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"})
-
-    if download_type == "captions":
-        langs = list(subtitle_langs) if subtitle_langs else ["en"]
-        opts["skip_download"] = True
-        opts["subtitlesformat"] = (format or "srt").lower()
-        opts["writesubtitles"] = True
-        opts["writeautomaticsub"] = True
-        opts["subtitleslangs"] = [v for l in langs for v in (l, f"{l}-orig")]
 
     if download_type in ("video", "audio") and subtitle_langs:
         opts["writesubtitles"] = True

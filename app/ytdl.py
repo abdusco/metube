@@ -471,19 +471,9 @@ class Download:
             if 'filename' in status:
                 fileName = status.get('filename')
                 rel_name = os.path.relpath(fileName, self.download_dir)
-                # For captions mode, ignore media-like placeholders and let subtitle_file
-                # statuses define the final file shown in the UI.
-                if getattr(self.info, 'download_type', '') == 'captions':
-                    if not rel_name.lower().endswith(('.vtt', '.srt', '.sbv', '.scc', '.ttml', '.dfxp')):
-                        continue
                 self.info.filename = rel_name
                 _fn = Path(fileName)
                 self.info.size = _fn.stat().st_size if _fn.exists() else None
-                if getattr(self.info, 'download_type', '') == 'thumbnail':
-                    # The thumbnail convertor always emits a .jpg, but yt-dlp may
-                    # report the pre-conversion media/thumbnail extension
-                    # (.webm/.mp4/.png/.webp/...). Normalise to .jpg regardless.
-                    self.info.filename = str(Path(self.info.filename).with_suffix('.jpg'))
 
             log.debug(f"Update status for {self.info.title}: {status}")
             if 'subtitle_file' in status:
@@ -496,10 +486,6 @@ class Download:
                 existing = next((sf for sf in self.info.subtitle_files if sf['filename'] == rel_path), None)
                 if not existing:
                     self.info.subtitle_files.append({'filename': rel_path, 'size': file_size})
-                # Prefer first subtitle file as the primary result link in captions mode.
-                if getattr(self.info, 'download_type', '') == 'captions' and not getattr(self.info, 'filename', None):
-                    self.info.filename = rel_path
-                    self.info.size = file_size
                 continue
 
             self.info.status = status['status']

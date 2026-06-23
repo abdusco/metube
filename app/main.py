@@ -28,7 +28,7 @@ _NIGHTLY_TIME_RE = re.compile(r'^([01]\d|2[0-3]):[0-5]\d$')
 _SUBTITLE_LANG_RE = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$')
 _RESTART_FOR_UPDATE = False
 
-VALID_DOWNLOAD_TYPES = frozenset({'video', 'audio', 'captions', 'thumbnail'})
+VALID_DOWNLOAD_TYPES = frozenset({'video', 'audio'})
 VALID_VIDEO_CODECS = frozenset({'auto', 'h264', 'h265', 'av1', 'vp9'})
 VALID_VIDEO_FORMATS = frozenset({'any', 'mp4', 'ios'})
 VALID_AUDIO_FORMATS = frozenset({'m4a', 'mp3', 'opus', 'wav', 'flac'})
@@ -303,11 +303,6 @@ class AddRequest(BaseModel):
             self.format = fmt
             self.quality = qual
             self.codec = 'auto'
-        elif dt in ('captions', 'thumbnail'):
-            self.format = fmt
-            self.quality = 'best'
-            self.codec = 'auto'
-
         return self
 
 

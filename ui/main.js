@@ -5,7 +5,7 @@
  * @property {string}         id            - queue key (url-derived)
  * @property {string}         title
  * @property {string}         url
- * @property {'video'|'audio'|'captions'|'thumbnail'} download_type
+ * @property {'video'|'audio'} download_type
  * @property {string}         codec         - auto | h264 | h265 | av1 | vp9
  * @property {string}         format        - mp4 | any | m4a | mp3 | …
  * @property {string}         quality       - best | 1080 | 720 | …
