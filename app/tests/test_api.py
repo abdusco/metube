@@ -35,7 +35,6 @@ def _valid_video_add_body(**kwargs):
         "codec": "auto",
         "format": "any",
         "quality": "best",
-        "ytdl_options_overrides": "",
     }
     base.update(kwargs)
     return base
@@ -46,16 +45,6 @@ def test_add_ok(client):
     assert resp.status_int == 200
     assert resp.json['status'] == 'ok'
     main.dqueue.add.assert_called_once()
-
-
-def test_add_passes_overrides(client, monkeypatch):
-    monkeypatch.setattr(main.config, "ALLOW_YTDL_OPTIONS_OVERRIDES", True)
-    resp = client.post_json('/add', _valid_video_add_body(
-        ytdl_options_overrides='{"writesubtitles": true}',
-    ))
-    assert resp.status_int == 200
-    call_kwargs = main.dqueue.add.call_args.kwargs
-    assert call_kwargs["ytdl_options_overrides"] == {"writesubtitles": True}
 
 
 def test_add_missing_url_returns_400(client):
@@ -77,24 +66,6 @@ def test_add_invalid_video_quality(client):
 def test_add_invalid_json_body(client):
     resp = client.post('/add', params='not-json', content_type='application/json', expect_errors=True)
     assert resp.status_int == 400
-
-
-def test_add_invalid_ytdl_options_override_json(client):
-    resp = client.post_json('/add', _valid_video_add_body(ytdl_options_overrides="{bad json}"), expect_errors=True)
-    assert resp.status_int == 400
-
-
-def test_add_rejects_ytdl_options_overrides_when_disabled(client):
-    resp = client.post_json('/add', _valid_video_add_body(ytdl_options_overrides='{"exec": "rm -rf /"}'), expect_errors=True)
-    assert resp.status_int == 400
-
-
-def test_add_allows_any_ytdl_options_override_key_when_enabled(client, monkeypatch):
-    monkeypatch.setattr(main.config, "ALLOW_YTDL_OPTIONS_OVERRIDES", True)
-    resp = client.post_json('/add', _valid_video_add_body(ytdl_options_overrides='{"exec": "echo hi"}'))
-    assert resp.status_int == 200
-    call_kwargs = main.dqueue.add.call_args.kwargs
-    assert call_kwargs["ytdl_options_overrides"] == {"exec": "echo hi"}
 
 
 def test_delete_missing_ids(client):

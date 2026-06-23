@@ -116,11 +116,9 @@ class DownloadInfo:
         download_type: str,
         codec: str,
         format: str,
-        folder: str | None,
         error: str | None,
         entry: dict[str, Any] | None,
         subtitle_langs: list[str] | None = None,
-        ytdl_options_overrides: dict[str, Any] | None = None,
     ) -> None:
         self.id = id
         self.title = title
@@ -129,7 +127,6 @@ class DownloadInfo:
         self.download_type = download_type
         self.codec = codec
         self.format = format
-        self.folder = folder
         self.msg = self.percent = self.speed = self.eta = None
         self.status = "pending"
         self.size = None
@@ -137,7 +134,6 @@ class DownloadInfo:
         self.error = error
         self.entry = _sanitize_entry_for_pickle(entry) if entry is not None else None
         self.subtitle_langs = list(subtitle_langs) if subtitle_langs else []
-        self.ytdl_options_overrides = dict(ytdl_options_overrides or {})
         self.subtitle_files = []
         self.logs: list = []
 
@@ -154,12 +150,8 @@ class DownloadInfo:
         self.__dict__.update(state)
         if not getattr(self, "codec", None):
             self.codec = "auto"
-        if not hasattr(self, "folder"):
-            self.folder = ""
         if not hasattr(self, "subtitle_langs"):
             self.subtitle_langs = []
-        if not hasattr(self, "ytdl_options_overrides"):
-            self.ytdl_options_overrides = {}
         if not hasattr(self, "entry"):
             self.entry = None
         if not hasattr(self, "subtitle_files"):
@@ -176,9 +168,7 @@ _PERSISTED_DOWNLOAD_FIELDS = (
     "download_type",
     "codec",
     "format",
-    "folder",
     "subtitle_langs",
-    "ytdl_options_overrides",
     "status",
     "timestamp",
     "error",
@@ -604,14 +594,12 @@ class DownloadQueue:
             log.debug(f'Auto-clearing completed download: {url}')
             self.clear([url])
 
-    def _build_ytdl_options(self, ytdl_options_overrides: dict[str, Any] | None = None) -> dict[str, Any]:
-        opts = dict(self.config.YTDL_OPTIONS)
-        opts.update(ytdl_options_overrides or {})
-        return opts
+    def _build_ytdl_options(self) -> dict[str, Any]:
+        return dict(self.config.YTDL_OPTIONS)
 
-    def __extract_info(self, url: str, ytdl_options_overrides: dict[str, Any] | None = None) -> Any:
+    def __extract_info(self, url: str) -> Any:
         debug_logging = logging.getLogger().isEnabledFor(logging.DEBUG)
-        user_opts = self._build_ytdl_options(ytdl_options_overrides)
+        user_opts = self._build_ytdl_options()
         params = {
             **user_opts,
             'quiet': not debug_logging,
@@ -627,21 +615,7 @@ class DownloadQueue:
             params['impersonate'] = yt_dlp.networking.impersonate.ImpersonateTarget.from_str(imp)
         return yt_dlp.YoutubeDL(params=params).extract_info(url, download=False)
 
-    def __calc_download_path(self, download_type: str, folder: str | None) -> tuple[Path | None, dict[str, Any] | None]:
-        base_directory = self.config.AUDIO_DOWNLOAD_DIR if download_type == 'audio' else self.config.DOWNLOAD_DIR
-        if folder:
-            real_base = Path(base_directory).resolve()
-            dldirectory = (Path(base_directory) / folder).resolve()
-            if not dldirectory.is_relative_to(real_base):
-                return None, {'status': 'error', 'msg': f'Folder "{folder}" must resolve inside the base download directory "{real_base}"'}
-            dldirectory.mkdir(parents=True, exist_ok=True)
-            return dldirectory, None
-        return Path(base_directory), None
-
     def __add_download(self, dl):
-        dldirectory, error_message = self.__calc_download_path(dl.download_type, dl.folder)
-        if error_message is not None:
-            return error_message
         output = self.config.OUTPUT_TEMPLATE
         entry = getattr(dl, 'entry', None)
         if entry is not None and entry.get('playlist_index') is not None:
@@ -654,9 +628,9 @@ class DownloadQueue:
                 output = self.config.OUTPUT_TEMPLATE_CHANNEL
             sanitized = {k: _sanitize_path_component(v) for k, v in entry.items()}
             output = _resolve_outtmpl_fields(output, sanitized, ('channel',))
-        ytdl_options = self._build_ytdl_options(getattr(dl, 'ytdl_options_overrides', {}) or {})
+        ytdl_options = self._build_ytdl_options()
         download = Download(
-            download_dir=dldirectory,
+            download_dir=Path(self.config.DOWNLOAD_DIR),
             temp_dir=Path(self.config.TEMP_DIR),
             output_template=output,
             quality=dl.quality,
@@ -676,9 +650,7 @@ class DownloadQueue:
         codec: str,
         format: str,
         quality: str,
-        folder: str | None,
         subtitle_langs: list[str],
-        ytdl_options_overrides: dict[str, Any],
         already: set[str],
     ) -> dict[str, Any]:
         if not entry:
@@ -695,9 +667,7 @@ class DownloadQueue:
                 codec=codec,
                 format=format,
                 quality=quality,
-                folder=folder,
                 subtitle_langs=subtitle_langs,
-                ytdl_options_overrides=ytdl_options_overrides,
                 already=already,
             )
         elif etype == 'playlist' or etype == 'channel':
@@ -729,9 +699,7 @@ class DownloadQueue:
                         codec=codec,
                         format=format,
                         quality=quality,
-                        folder=folder,
                         subtitle_langs=subtitle_langs,
-                        ytdl_options_overrides=ytdl_options_overrides,
                         already=already,
                     )
                 )
@@ -750,11 +718,9 @@ class DownloadQueue:
                     download_type=download_type,
                     codec=codec,
                     format=format,
-                    folder=folder,
                     error=error,
                     entry=entry,
                     subtitle_langs=subtitle_langs,
-                    ytdl_options_overrides=ytdl_options_overrides,
                 )
                 self.__add_download(dl)
             return {'status': 'ok'}
@@ -767,13 +733,11 @@ class DownloadQueue:
         codec: str,
         format: str,
         quality: str,
-        folder: str | None,
         subtitle_langs: list[str] | None = None,
-        ytdl_options_overrides: dict[str, Any] | None = None,
         already: set[str] | None = None,
     ) -> dict[str, Any]:
         log.info(
-            f'adding {url}: {download_type=} {codec=} {format=} {quality=} {already=} {folder=} {subtitle_langs=}'
+            f'adding {url}: {download_type=} {codec=} {format=} {quality=} {already=} {subtitle_langs=}'
         )
         already = set() if already is None else already
         if url in already:
@@ -781,7 +745,7 @@ class DownloadQueue:
             return {'status': 'ok'}
         already.add(url)
         try:
-            entry = self.__extract_info(url, ytdl_options_overrides)
+            entry = self.__extract_info(url)
         except yt_dlp.utils.YoutubeDLError as exc:
             return {'status': 'error', 'msg': str(exc)}
         return self.__add_entry(
@@ -790,9 +754,7 @@ class DownloadQueue:
             codec=codec,
             format=format,
             quality=quality,
-            folder=folder,
             subtitle_langs=subtitle_langs or [],
-            ytdl_options_overrides=ytdl_options_overrides or {},
             already=already,
         )
 
@@ -803,9 +765,7 @@ class DownloadQueue:
         codec: str,
         format: str,
         quality: str,
-        folder: str | None,
         subtitle_langs: list[str] | None = None,
-        ytdl_options_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         normalized_entry = copy.deepcopy(entry) if isinstance(entry, dict) else entry
         already = set()
@@ -815,9 +775,7 @@ class DownloadQueue:
             codec=codec,
             format=format,
             quality=quality,
-            folder=folder,
             subtitle_langs=subtitle_langs or [],
-            ytdl_options_overrides=ytdl_options_overrides or {},
             already=already,
         )
 
@@ -844,23 +802,20 @@ class DownloadQueue:
                     continue
                 if self.config.DELETE_FILE_ON_TRASHCAN:
                     dl = self.done.get(id)
-                    dldirectory, calc_error = self.__calc_download_path(dl.info.download_type, dl.info.folder)
-                    if calc_error is not None or not dldirectory:
-                        log.warning(f'deleting files for download {id} skipped: could not resolve download directory')
-                    else:
-                        rel_names = []
-                        if getattr(dl.info, 'filename', None):
-                            rel_names.append(dl.info.filename)
-                        for extra in (getattr(dl.info, 'subtitle_files', None) or []):
-                            if isinstance(extra, dict) and extra.get('filename'):
-                                rel_names.append(extra['filename'])
-                        for rel_name in rel_names:
-                            try:
-                                (dldirectory / rel_name).unlink()
-                            except FileNotFoundError:
-                                pass
-                            except OSError as e:
-                                log.warning(f'deleting file "{rel_name}" for download {id} failed with error message {e!r}')
+                    dldirectory = Path(self.config.DOWNLOAD_DIR)
+                    rel_names = []
+                    if getattr(dl.info, 'filename', None):
+                        rel_names.append(dl.info.filename)
+                    for extra in (getattr(dl.info, 'subtitle_files', None) or []):
+                        if isinstance(extra, dict) and extra.get('filename'):
+                            rel_names.append(extra['filename'])
+                    for rel_name in rel_names:
+                        try:
+                            (dldirectory / rel_name).unlink()
+                        except FileNotFoundError:
+                            pass
+                        except OSError as e:
+                            log.warning(f'deleting file "{rel_name}" for download {id} failed with error message {e!r}')
                 self.done.delete(id)
                 self.notifier.cleared(id)
         return {'status': 'ok'}

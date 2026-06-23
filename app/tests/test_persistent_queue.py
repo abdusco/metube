@@ -53,7 +53,6 @@ def _make_info(url: str = "https://example.com/v") -> DownloadInfo:
         download_type="video",
         codec="auto",
         format="any",
-        folder="",
         error=None,
         entry=None,
     )
@@ -173,7 +172,6 @@ class PersistentQueueTests(unittest.TestCase):
                                     "download_type": "video",
                                     "codec": "auto",
                                     "format": "any",
-                                    "folder": "",
                                     "status": "pending",
                                     "timestamp": 1,
                                     "entry": {

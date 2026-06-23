@@ -12,19 +12,16 @@ from main import Config
 
 _BASE_ENV: dict[str, str] = {
     'DOWNLOAD_DIR': '.',
-    'AUDIO_DOWNLOAD_DIR': '',
     'TEMP_DIR': '',
     'DELETE_FILE_ON_TRASHCAN': 'false',
     'STATE_DIR': '.',
     'PUBLIC_HOST_URL': 'download/',
-    'PUBLIC_HOST_AUDIO_URL': 'audio_download/',
     'OUTPUT_TEMPLATE': '%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s',
     'OUTPUT_TEMPLATE_PLAYLIST': '%(playlist_title)s/%(title)s.%(ext)s',
     'OUTPUT_TEMPLATE_CHANNEL': '%(channel)s/%(title)s.%(ext)s',
     'CLEAR_COMPLETED_AFTER': '0',
     'YTDL_OPTIONS': '{}',
     'YTDL_OPTIONS_FILE': '',
-    'ALLOW_YTDL_OPTIONS_OVERRIDES': 'false',
     'CORS_ALLOWED_ORIGINS': '',
     'HOST': '0.0.0.0',
     'PORT': '8081',
@@ -49,50 +46,19 @@ class ConfigTests(unittest.TestCase):
             c = Config()
         self.assertEqual(c.PUBLIC_HOST_URL, "https://ytdl.example.com/")
 
-    def test_public_host_audio_url_gets_trailing_slash(self):
-        with patch.dict(
-            os.environ,
-            _base_env(PUBLIC_HOST_AUDIO_URL="https://audio.example.com"),
-            clear=False,
-        ):
-            c = Config()
-        self.assertEqual(c.PUBLIC_HOST_AUDIO_URL, "https://audio.example.com/")
-
     def test_public_host_url_empty_stays_empty(self):
-        with patch.dict(
-            os.environ,
-            _base_env(PUBLIC_HOST_URL="", PUBLIC_HOST_AUDIO_URL=""),
-            clear=False,
-        ):
+        with patch.dict(os.environ, _base_env(PUBLIC_HOST_URL=""), clear=False):
             c = Config()
         self.assertEqual(c.PUBLIC_HOST_URL, "")
-        self.assertEqual(c.PUBLIC_HOST_AUDIO_URL, "")
-
-    def test_blank_audio_host_falls_back_to_audio_download_route(self):
-        # Regression: a present-but-blank PUBLIC_HOST_AUDIO_URL must not stay empty
-        # (which produced root-relative, 404ing audio links). It falls back to the
-        # 'audio_download/' route that serves AUDIO_DOWNLOAD_DIR.
-        with patch.dict(
-            os.environ,
-            _base_env(PUBLIC_HOST_URL="https://ytdl.example.com", PUBLIC_HOST_AUDIO_URL=""),
-            clear=False,
-        ):
-            c = Config()
-        self.assertEqual(c.PUBLIC_HOST_URL, "https://ytdl.example.com/")
-        self.assertEqual(c.PUBLIC_HOST_AUDIO_URL, "audio_download/")
 
     def test_public_host_url_already_slashed_unchanged(self):
         with patch.dict(
             os.environ,
-            _base_env(
-                PUBLIC_HOST_URL="https://ytdl.example.com/",
-                PUBLIC_HOST_AUDIO_URL="https://audio.example.com/",
-            ),
+            _base_env(PUBLIC_HOST_URL="https://ytdl.example.com/"),
             clear=False,
         ):
             c = Config()
         self.assertEqual(c.PUBLIC_HOST_URL, "https://ytdl.example.com/")
-        self.assertEqual(c.PUBLIC_HOST_AUDIO_URL, "https://audio.example.com/")
 
     def test_ytdl_options_json_loaded(self):
         opts = {"quiet": True, "no_warnings": True}
@@ -120,12 +86,7 @@ class ConfigTests(unittest.TestCase):
         safe = c.frontend_safe()
         self.assertNotIn("YTDL_OPTIONS", safe)
         self.assertNotIn("HOST", safe)
-        self.assertEqual(safe["ALLOW_YTDL_OPTIONS_OVERRIDES"], False)
-
-    def test_allow_ytdl_options_overrides_boolean_loaded(self):
-        with patch.dict(os.environ, _base_env(ALLOW_YTDL_OPTIONS_OVERRIDES="true"), clear=False):
-            c = Config()
-        self.assertTrue(c.ALLOW_YTDL_OPTIONS_OVERRIDES)
+        self.assertEqual(safe, {"PUBLIC_HOST_URL": "download/"})
 
     def test_ytdl_nightly_update_time_empty_default(self):
         with patch.dict(os.environ, _base_env(YTDL_NIGHTLY_UPDATE_TIME=""), clear=False):

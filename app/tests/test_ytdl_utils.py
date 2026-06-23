@@ -163,7 +163,6 @@ class DownloadInfoSetstateTests(unittest.TestCase):
             "id": "id1",
             "title": "t",
             "url": "http://example.com/v",
-            "folder": "",
             "error": None,
             "entry": None,
             "msg": None,
@@ -195,10 +194,9 @@ class DownloadInfoSetstateTests(unittest.TestCase):
             format="any",
             quality="best",
         )
-        state.pop("folder")
         di = DownloadInfo.__new__(DownloadInfo)
         di.__setstate__(state)
-        self.assertEqual(di.folder, "")
+        self.assertEqual(di.subtitle_langs, [])
 
 
 class CompactPersistedEntryTests(unittest.TestCase):

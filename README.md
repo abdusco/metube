@@ -44,8 +44,7 @@ Certain values can be set via environment variables, using the `-e` parameter on
 ### 📁 Storage & Directories
 
 * __DOWNLOAD_DIR__: Path to where the downloads will be saved. Defaults to `/downloads` in the Docker image, and `.` otherwise.
-* __AUDIO_DOWNLOAD_DIR__: Path to where audio-only downloads will be saved, if you wish to separate them from the video downloads. Defaults to the value of `DOWNLOAD_DIR`.
-* __DOWNLOAD_DIRS_INDEXABLE__: If `true`, the download directories (__DOWNLOAD_DIR__ and __AUDIO_DOWNLOAD_DIR__) are indexable on the web server. Defaults to `false`.
+* __DOWNLOAD_DIRS_INDEXABLE__: If `true`, the download directory is indexable on the web server. Defaults to `false`.
 * __STATE_DIR__: Path to where MeTube will store its persistent state files (`queue.json`, `pending.json`, `completed.json`). Defaults to `/downloads/.metube` in the Docker image, and `.` otherwise.
 * __TEMP_DIR__: Path where intermediary download files will be saved. Defaults to `/downloads` in the Docker image, and `.` otherwise.
   * Set this to an SSD or RAM filesystem (e.g., `tmpfs`) for better performance.
@@ -59,7 +58,6 @@ Certain values can be set via environment variables, using the `-e` parameter on
 * __OUTPUT_TEMPLATE_CHANNEL__: The template for the filenames of the downloaded videos when downloaded as a channel. Defaults to `%(channel)s/%(title)s.%(ext)s`. Set to empty to use `OUTPUT_TEMPLATE` instead.
 * __YTDL_OPTIONS__: Additional options to pass to yt-dlp, as a JSON object. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options) for details, examples, and available options reference.
 * __YTDL_OPTIONS_FILE__: Path to a JSON file containing yt-dlp options. Loaded on startup. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options).
-* __ALLOW_YTDL_OPTIONS_OVERRIDES__: Whether to show a free-text field in the UI for per-download yt-dlp option overrides. Defaults to `false`. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options) for details and security considerations.
 * __YTDL_NIGHTLY_UPDATE_TIME__: If set, will cause MeTube to use [nightly yt-dlp builds](https://github.com/yt-dlp/yt-dlp-nightly-builds) instead of the stable releases. Set to the time (`HH:MM`, 24-hour) when you want the daily upgrades and MeTube restart to happen. Defaults to empty (disabled).
 
 ### 🌐 Web Server & URLs
@@ -68,7 +66,6 @@ Certain values can be set via environment variables, using the `-e` parameter on
 * __PORT__: The port number the web server will listen on. Defaults to `8081`.
 * __URL_PREFIX__: Base path for the web server (for use when hosting behind a reverse proxy). Defaults to `/`.
 * __PUBLIC_HOST_URL__: Base URL for the download links shown in the UI for completed files. By default, MeTube serves them under its own URL. If your download directory is accessible on another URL and you want the download links to be based there, use this variable to set it.
-* __PUBLIC_HOST_AUDIO_URL__: Same as PUBLIC_HOST_URL but for audio downloads.
 * __HTTPS__: Use `https` instead of `http` (__CERTFILE__ and __KEYFILE__ required). Defaults to `false`.
 * __CERTFILE__: HTTPS certificate file path.
 * __KEYFILE__: HTTPS key file path.
@@ -86,14 +83,7 @@ Certain values can be set via environment variables, using the `-e` parameter on
 
 ## 🎛️ Configuring yt-dlp options
 
-MeTube lets you customize how [yt-dlp](https://github.com/yt-dlp/yt-dlp) behaves at two levels, from broadest to most specific:
-
-1. **Global options** — apply to every download by default.
-2. **Per-download overrides** — free-form options entered in the UI for a single download.
-
-When a download starts, these layers are combined in order. If the same option appears in more than one layer, the more specific one wins.
-
-In JSON overrides, setting an option to **`null`** clears that option for that download (for example, `"download_archive": null` overrides a global archive path so the archive is not used). This follows yt-dlp’s usual meaning of `None` for that option.
+MeTube lets you customize how [yt-dlp](https://github.com/yt-dlp/yt-dlp) behaves with global options that apply to every download by default.
 
 ### Option format
 
@@ -134,29 +124,7 @@ where `ytdl-options.json` contains:
 
 The file is loaded on startup. If you use both methods and they define the same key, the **file takes precedence**.
 
-### Per-download overrides
-
-For one-off tweaks, MeTube can expose a free-text JSON field in the UI ("Custom yt-dlp Options") where users type yt-dlp options that apply only to that single download. This is disabled by default:
-
-```yaml
-environment:
-  - ALLOW_YTDL_OPTIONS_OVERRIDES=true
-```
-
-Once enabled, the field appears under **Advanced Options**. Any options entered there take the highest priority, overriding global options.
-
-> **⚠️ Security note:** Enabling this allows arbitrary yt-dlp API options to be supplied by anyone with access to the UI. Depending on the options used, this may enable arbitrary command execution inside the container. Enable only in trusted environments.
-
-### How the layers combine
-
-When a download starts, the final set of yt-dlp options is built in this order:
-
-1. Start with **global options** (`YTDL_OPTIONS` / `YTDL_OPTIONS_FILE`).
-2. Apply any **per-download overrides** on top (overwrite global options for conflicting keys).
-
-MeTube always forces its own flat-extract behaviour during the initial metadata fetch (`extract_flat`, `noplaylist`, etc.); overrides cannot override those keys for that phase.
-
-**Example:** Suppose your global options set `"writesubtitles": false`. If you additionally enter `{"writesubtitles": true}` in the per-download overrides field, that value wins and subtitles will be written for that download only.
+MeTube always forces its own flat-extract behaviour during the initial metadata fetch (`extract_flat`, `noplaylist`, etc.).
 
 ### Configuration cookbooks
 

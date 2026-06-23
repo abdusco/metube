@@ -27,7 +27,7 @@ class FrontendSafeTests(unittest.TestCase):
             self.assertIn(key, safe)
         self.assertNotIn("YTDL_OPTIONS", safe)
         self.assertNotIn("DOWNLOAD_DIR", safe)
-        self.assertIn("ALLOW_YTDL_OPTIONS_OVERRIDES", safe)
+        self.assertEqual(set(safe), {"PUBLIC_HOST_URL"})
 
 
 class AddRequestTests(unittest.TestCase):
@@ -55,22 +55,6 @@ class AddRequestTests(unittest.TestCase):
     def test_rejects_invalid_subtitle_lang(self):
         with self.assertRaises(ValidationError):
             main.AddRequest.model_validate({**self._base, "subtitle_langs": ["!bad"]})
-
-    def test_rejects_non_object_overrides_json(self):
-        with self.assertRaises(ValidationError):
-            main.AddRequest.model_validate({**self._base, "ytdl_options_overrides": '["bad"]'})
-
-    def test_rejects_invalid_overrides_json(self):
-        with self.assertRaises(ValidationError):
-            main.AddRequest.model_validate({**self._base, "ytdl_options_overrides": "not-json"})
-
-    def test_parses_string_overrides(self):
-        req = main.AddRequest.model_validate({**self._base, "ytdl_options_overrides": '{"quiet": true}'})
-        self.assertEqual(req.ytdl_options_overrides, {"quiet": True})
-
-    def test_empty_overrides_string_becomes_empty_dict(self):
-        req = main.AddRequest.model_validate({**self._base, "ytdl_options_overrides": ""})
-        self.assertEqual(req.ytdl_options_overrides, {})
 
     def test_audio_forces_auto_codec(self):
         req = main.AddRequest.model_validate({

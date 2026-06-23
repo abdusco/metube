@@ -265,18 +265,6 @@
               <pre x-text="(logs[dl.id] || []).join('\n') || '(no logs yet)'"></pre>
             </div>
 
-            <!-- Chapter files -->
-            <template x-if="dl.chapter_files && dl.chapter_files.length">
-              <div style="margin-top:8px; padding-left:12px; border-left:2px solid var(--border)">
-                <template x-for="(ch, i) in dl.chapter_files" :key="i">
-                  <div class="dl-meta" style="margin-top:4px">
-                    <a :href="downloadUrl({...dl, filename: ch.filename})" x-text="ch.filename" :download="ch.filename"></a>
-                    <span x-text="formatBytes(ch.size)"></span>
-                  </div>
-                </template>
-              </div>
-            </template>
-
             <!-- Subtitle files -->
             <template x-if="dl.subtitle_files && dl.subtitle_files.length">
               <div style="margin-top:8px; padding-left:12px; border-left:2px solid var(--border)">

@@ -18,7 +18,6 @@
  * @property {number|null}    size          - bytes
  * @property {number|null}    timestamp     - nanoseconds since epoch
  * @property {string|null}    error
- * @property {Array<{filename:string,size:number}>} [chapter_files]
  * @property {Array<{filename:string,size:number}>} [subtitle_files]
  * @property {string[]}       [subtitle_langs]
  */
@@ -26,7 +25,6 @@
 /**
  * @typedef {object} AppConfig
  * @property {string}  PUBLIC_HOST_URL
- * @property {string}  PUBLIC_HOST_AUDIO_URL
  */
 
 /**
@@ -56,7 +54,7 @@ function app() {
 
     // ── config ────────────────────────────────────────────────────────────────
     /** @type {AppConfig} */
-    config: { PUBLIC_HOST_URL: 'download/', PUBLIC_HOST_AUDIO_URL: 'audio_download/' },
+    config: { PUBLIC_HOST_URL: 'download/' },
 
     // ── cookies ───────────────────────────────────────────────────────────────
     hasCookies: false,
@@ -152,7 +150,6 @@ function app() {
             codec:                this.downloadType === 'video' ? this.codec : 'auto',
             format:               this.format,
             quality:              this.quality,
-            folder:               '',
             subtitle_langs:       langs,
           }),
         });
@@ -198,7 +195,6 @@ function app() {
           codec:                dl.codec,
           format:               dl.format,
           quality:              dl.quality,
-          folder:               dl.folder || '',
           subtitle_langs:       dl.subtitle_langs || [],
         }),
       });
@@ -211,11 +207,7 @@ function app() {
      * @returns {string}
      */
     downloadUrl(dl) {
-      const base = dl.download_type === 'audio'
-        ? this.config.PUBLIC_HOST_AUDIO_URL
-        : this.config.PUBLIC_HOST_URL;
-      const folder = dl.folder ? dl.folder.replace(/\/?$/, '/') : '';
-      return base + folder + encodeURIComponent(dl.filename || '');
+      return this.config.PUBLIC_HOST_URL + encodeURIComponent(dl.filename || '');
     },
 
     // ══════════════════════════════════════════════════════════════════════════

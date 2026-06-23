@@ -60,19 +60,16 @@ class Config(BaseSettings):
     model_config = SettingsConfigDict(case_sensitive=True, extra="ignore")
 
     DOWNLOAD_DIR: str = "."
-    AUDIO_DOWNLOAD_DIR: str = ""
     TEMP_DIR: str = ""
     DELETE_FILE_ON_TRASHCAN: bool = False
     STATE_DIR: str = "."
     PUBLIC_HOST_URL: str = "download/"
-    PUBLIC_HOST_AUDIO_URL: str = "audio_download/"
     OUTPUT_TEMPLATE: str = "%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s"
     OUTPUT_TEMPLATE_PLAYLIST: str = "%(playlist_title)s/%(title)s.%(ext)s"
     OUTPUT_TEMPLATE_CHANNEL: str = "%(channel)s/%(title)s.%(ext)s"
     CLEAR_COMPLETED_AFTER: int = 0
     YTDL_OPTIONS: dict[str, Any] = Field(default_factory=dict)
     YTDL_OPTIONS_FILE: str = ""
-    ALLOW_YTDL_OPTIONS_OVERRIDES: bool = False
     CORS_ALLOWED_ORIGINS: str = ""
     HOST: str = "0.0.0.0"
     PORT: int = 8081
@@ -86,8 +83,6 @@ class Config(BaseSettings):
 
     _FRONTEND_KEYS: ClassVar[tuple[str, ...]] = (
         "PUBLIC_HOST_URL",
-        "PUBLIC_HOST_AUDIO_URL",
-        "ALLOW_YTDL_OPTIONS_OVERRIDES",
     )
 
     def __init__(self, **kwargs: Any) -> None:
@@ -139,16 +134,10 @@ class Config(BaseSettings):
 
     @model_validator(mode="after")
     def _post_init(self) -> "Config":
-        if not self.AUDIO_DOWNLOAD_DIR:
-            self.AUDIO_DOWNLOAD_DIR = self.DOWNLOAD_DIR
         if not self.TEMP_DIR:
             self.TEMP_DIR = self.DOWNLOAD_DIR
-        if not self.PUBLIC_HOST_AUDIO_URL and self.PUBLIC_HOST_URL:
-            self.PUBLIC_HOST_AUDIO_URL = "audio_download/"
-        for attr in ("PUBLIC_HOST_URL", "PUBLIC_HOST_AUDIO_URL"):
-            val = getattr(self, attr)
-            if val and not val.endswith("/"):
-                setattr(self, attr, val + "/")
+        if self.PUBLIC_HOST_URL and not self.PUBLIC_HOST_URL.endswith("/"):
+            self.PUBLIC_HOST_URL += "/"
         if self.YTDL_OPTIONS_FILE:
             log.info('Loading yt-dlp custom options from "%s"', self.YTDL_OPTIONS_FILE)
             path = Path(self.YTDL_OPTIONS_FILE)
@@ -195,9 +184,7 @@ class AddRequest(BaseModel):
     quality: str
     format: str
     codec: str = "auto"
-    folder: str | None = None
     subtitle_langs: list[str] = Field(default_factory=list)
-    ytdl_options_overrides: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("url")
     @classmethod
@@ -228,21 +215,6 @@ class AddRequest(BaseModel):
         for code in v:
             if not _SUBTITLE_LANG_RE.match(code):
                 raise ValueError(f"invalid subtitle language code: {code!r}")
-        return v
-
-    @field_validator("ytdl_options_overrides", mode="before")
-    @classmethod
-    def _parse_overrides_json(cls, v: Any) -> dict:
-        if v is None or v == "":
-            return {}
-        if isinstance(v, str):
-            try:
-                parsed = json.loads(v)
-            except json.JSONDecodeError as exc:
-                raise ValueError("must be valid JSON") from exc
-            if not isinstance(parsed, dict):
-                raise ValueError("must be a JSON object")
-            return parsed
         return v
 
     @model_validator(mode="after")
@@ -289,9 +261,7 @@ class CookieStatusResponse(BaseModel):
 
 
 class ConfigurationResponse(BaseModel):
-    ALLOW_YTDL_OPTIONS_OVERRIDES: bool
     PUBLIC_HOST_URL: str
-    PUBLIC_HOST_AUDIO_URL: str
 
 
 def _is_within_state_dir(target: str | Path) -> bool:
@@ -389,15 +359,11 @@ def add():
     except PydanticValidationError as exc:
         abort(400, _first_validation_error(exc))
 
-    if req.ytdl_options_overrides and not config.ALLOW_YTDL_OPTIONS_OVERRIDES:
-        abort(400, "ytdl_options_overrides are disabled")
-
     log.info(
-        "Add download request: type=%s quality=%s format=%s has_folder=%s",
+        "Add download request: type=%s quality=%s format=%s",
         req.download_type,
         req.quality,
         req.format,
-        bool(req.folder),
     )
     status = dqueue.add(
         url=req.url,
@@ -405,9 +371,7 @@ def add():
         codec=req.codec,
         format=req.format,
         quality=req.quality,
-        folder=req.folder,
         subtitle_langs=req.subtitle_langs,
-        ytdl_options_overrides=req.ytdl_options_overrides,
     )
     return _json(status)
 
@@ -521,14 +485,6 @@ def serve_download(filepath):
     if _is_within_state_dir(target):
         abort(404)
     return static_file(filepath, root=config.DOWNLOAD_DIR)
-
-
-@app.route("/audio_download/<filepath:path>")
-def serve_audio_download(filepath):
-    target = (Path(config.AUDIO_DOWNLOAD_DIR) / unquote(filepath)).resolve()
-    if _is_within_state_dir(target):
-        abort(404)
-    return static_file(filepath, root=config.AUDIO_DOWNLOAD_DIR)
 
 
 @app.route("/")
