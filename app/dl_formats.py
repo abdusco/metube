@@ -129,10 +129,7 @@ def get_opts(
         mode = _normalize_caption_mode(subtitle_mode)
         langs = list(subtitle_langs) if subtitle_langs else ["en"]
         opts["skip_download"] = True
-        requested_subtitle_format = (format or "srt").lower()
-        if requested_subtitle_format == "txt":
-            requested_subtitle_format = "srt"
-        opts["subtitlesformat"] = requested_subtitle_format
+        opts["subtitlesformat"] = (format or "srt").lower()
         if mode == "manual_only":
             opts["writesubtitles"] = True
             opts["writeautomaticsub"] = False

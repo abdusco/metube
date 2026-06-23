@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import pickle
 import sys
-import tempfile
 import threading
 import types
 import unittest
-from pathlib import Path
 
 fake_yt_dlp = types.ModuleType("yt_dlp")
 fake_networking = types.ModuleType("yt_dlp.networking")
@@ -39,7 +37,6 @@ sys.modules.setdefault("yt_dlp.utils", fake_utils)
 from ytdl import (
     DownloadInfo,
     _compact_persisted_entry,
-    _convert_srt_to_txt_file,
     _resolve_outtmpl_fields,
     _sanitize_entry_for_pickle,
     _sanitize_path_component,
@@ -158,27 +155,6 @@ class SanitizeEntryForPickleTests(unittest.TestCase):
         od = OrderedDict([("z", 1), ("a", 2)])
         out = _sanitize_entry_for_pickle(od)
         self.assertEqual(out, {"z": 1, "a": 2})
-
-
-class ConvertSrtToTxtTests(unittest.TestCase):
-    def test_basic_conversion(self):
-        srt = """1
-00:00:01,000 --> 00:00:02,000
-Hello <b>world</b>
-
-2
-00:00:03,000 --> 00:00:04,000
-Second line
-"""
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "sub.srt"
-            path.write_text(srt, encoding="utf-8")
-            txt_path = _convert_srt_to_txt_file(str(path))
-            self.assertIsNotNone(txt_path)
-            self.assertTrue(txt_path.endswith(".txt"))
-            content = Path(txt_path).read_text(encoding="utf-8")
-            self.assertIn("Hello world", content)
-            self.assertIn("Second line", content)
 
 
 class DownloadInfoSetstateTests(unittest.TestCase):

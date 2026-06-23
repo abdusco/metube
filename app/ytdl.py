@@ -129,44 +129,6 @@ def _sanitize_entry_for_pickle(obj, _depth=0):
         return None
 
 
-def _convert_srt_to_txt_file(subtitle_path: str):
-    """Convert an SRT subtitle file into plain text by stripping cue numbers/timestamps."""
-    txt_path = os.path.splitext(subtitle_path)[0] + ".txt"
-    try:
-        with open(subtitle_path, "r", encoding="utf-8", errors="replace") as infile:
-            content = infile.read()
-
-        # Normalize newlines so cue splitting is consistent across platforms.
-        content = content.replace("\r\n", "\n").replace("\r", "\n")
-        cues = []
-        for block in re.split(r"\n{2,}", content):
-            lines = [line.strip() for line in block.split("\n") if line.strip()]
-            if not lines:
-                continue
-            if re.fullmatch(r"\d+", lines[0]):
-                lines = lines[1:]
-            if lines and "-->" in lines[0]:
-                lines = lines[1:]
-
-            text_lines = []
-            for line in lines:
-                if "-->" in line:
-                    continue
-                clean_line = re.sub(r"<[^>]+>", "", line).strip()
-                if clean_line:
-                    text_lines.append(clean_line)
-            if text_lines:
-                cues.append(" ".join(text_lines))
-
-        with open(txt_path, "w", encoding="utf-8") as outfile:
-            if cues:
-                outfile.write("\n".join(cues))
-                outfile.write("\n")
-        return txt_path
-    except OSError as exc:
-        log.warning(f"Failed to convert subtitle file {subtitle_path} to txt: {exc}")
-        return None
-
 class DownloadQueueNotifier:
     async def added(self, dl):
         raise NotImplementedError
@@ -595,9 +557,7 @@ class Download:
                 # For captions mode, ignore media-like placeholders and let subtitle_file
                 # statuses define the final file shown in the UI.
                 if getattr(self.info, 'download_type', '') == 'captions':
-                    requested_subtitle_format = str(getattr(self.info, 'format', '')).lower()
-                    allowed_caption_exts = ('.txt',) if requested_subtitle_format == 'txt' else ('.vtt', '.srt', '.sbv', '.scc', '.ttml', '.dfxp')
-                    if not rel_name.lower().endswith(allowed_caption_exts):
+                    if not rel_name.lower().endswith(('.vtt', '.srt', '.sbv', '.scc', '.ttml', '.dfxp')):
                         continue
                 self.info.filename = rel_name
                 self.info.size = os.path.getsize(fileName) if os.path.exists(fileName) else None
@@ -626,29 +586,13 @@ class Download:
                 subtitle_file = status.get('subtitle_file')
                 if not subtitle_file:
                     continue
-                subtitle_output_file = subtitle_file
-
-                # txt mode is derived from SRT by stripping cue metadata.
-                if getattr(self.info, 'download_type', '') == 'captions' and str(getattr(self.info, 'format', '')).lower() == 'txt':
-                    converted_txt = _convert_srt_to_txt_file(subtitle_file)
-                    if converted_txt:
-                        subtitle_output_file = converted_txt
-                        if converted_txt != subtitle_file:
-                            try:
-                                os.remove(subtitle_file)
-                            except OSError as exc:
-                                log.debug(f"Could not remove temporary SRT file {subtitle_file}: {exc}")
-
-                rel_path = os.path.relpath(subtitle_output_file, self.download_dir)
-                file_size = os.path.getsize(subtitle_output_file) if os.path.exists(subtitle_output_file) else None
+                rel_path = os.path.relpath(subtitle_file, self.download_dir)
+                file_size = os.path.getsize(subtitle_file) if os.path.exists(subtitle_file) else None
                 existing = next((sf for sf in self.info.subtitle_files if sf['filename'] == rel_path), None)
                 if not existing:
                     self.info.subtitle_files.append({'filename': rel_path, 'size': file_size})
                 # Prefer first subtitle file as the primary result link in captions mode.
-                if getattr(self.info, 'download_type', '') == 'captions' and (
-                    not getattr(self.info, 'filename', None) or
-                    str(getattr(self.info, 'format', '')).lower() == 'txt'
-                ):
+                if getattr(self.info, 'download_type', '') == 'captions' and not getattr(self.info, 'filename', None):
                     self.info.filename = rel_path
                     self.info.size = file_size
                 continue
