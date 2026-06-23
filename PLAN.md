@@ -82,7 +82,6 @@ Vanilla Alpine.js app (`ui/`). No build step. Polls the backend over HTTP — no
 | `AUDIO_DOWNLOAD_DIR` | `DOWNLOAD_DIR` | Where audio files are saved |
 | `STATE_DIR` | `.` | Queue/done/pending JSON files |
 | `TEMP_DIR` | `DOWNLOAD_DIR` | In-progress files |
-| `DOWNLOAD_DIRS_INDEXABLE` | `false` | Allow directory listing |
 | `DELETE_FILE_ON_TRASHCAN` | `false` | Delete file when clearing a done item |
 | `MAX_CONCURRENT_DOWNLOADS` | `3` | Parallel download limit |
 | `CLEAR_COMPLETED_AFTER` | `0` | Auto-clear delay in seconds (0 = off) |
@@ -101,12 +100,10 @@ Vanilla Alpine.js app (`ui/`). No build step. Polls the backend over HTTP — no
 | `PUBLIC_HOST_URL` | `download/` | Base URL for video file links |
 | `PUBLIC_HOST_AUDIO_URL` | `audio_download/` | Base URL for audio file links |
 | `CORS_ALLOWED_ORIGINS` | | Comma-separated origins or `*` |
-| `ROBOTS_TXT` | | Path to custom robots.txt |
 | `LOGLEVEL` | `INFO` | Python log level |
-| `DEFAULT_THEME` | `auto` | Theme cookie set for new visitors |
 | `PUID` / `PGID` / `UMASK` | `1000/1000/022` | File ownership in Docker |
 
-> **Removed from old backend**: `HTTPS`, `CERTFILE`, `KEYFILE` (TLS terminated upstream); `ENABLE_ACCESSLOG` (waitress logs unconditionally via stdlib `logging`).
+> **Removed from old backend**: `HTTPS`, `CERTFILE`, `KEYFILE` (TLS terminated upstream); `ENABLE_ACCESSLOG`, `URL_PREFIX`, `DOWNLOAD_DIRS_INDEXABLE`, `DEFAULT_THEME`, `ROBOTS_TXT`.
 
 ---
 
