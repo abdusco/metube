@@ -6,8 +6,6 @@ requires-python = ">=3.13"
 dependencies = [
     "aiohttp",
     "yt-dlp[default,curl-cffi,deno]",
-    "mutagen",
-    "curl-cffi",
 ]
 
 [dependency-groups]
