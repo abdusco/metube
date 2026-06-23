@@ -6,6 +6,7 @@ import sys
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 from aiohttp import web
 from aiohttp.web import GracefulExit
 from aiohttp.log import access_logger
@@ -37,7 +38,7 @@ def seconds_until_next_daily_time(time_hhmm: str, now: datetime | None = None) -
         target += timedelta(days=1)
     return (target - now).total_seconds()
 
-def parseLogLevel(logLevel):
+def parse_log_level(logLevel: Any) -> int | None:
     if not isinstance(logLevel, str):
         return None
     return getattr(logging, logLevel.upper(), None)
@@ -45,7 +46,7 @@ def parseLogLevel(logLevel):
 # Configure logging before Config() uses it so early messages are not dropped.
 # Only configure if no handlers are set (avoid clobbering hosting app settings).
 if not logging.getLogger().hasHandlers():
-    logging.basicConfig(level=parseLogLevel(os.environ.get('LOGLEVEL', 'INFO')) or logging.INFO)
+    logging.basicConfig(level=parse_log_level(os.environ.get('LOGLEVEL', 'INFO')) or logging.INFO)
 
 class Config:
     _DEFAULTS = {
@@ -138,7 +139,7 @@ class Config:
         if not success:
             sys.exit(1)
 
-    def _validate_int(self, key, *, minimum=None, maximum=None):
+    def _validate_int(self, key: str, *, minimum: int | None = None, maximum: int | None = None) -> None:
         raw = getattr(self, key)
         try:
             value = int(raw)
@@ -152,11 +153,11 @@ class Config:
             log.error('Environment variable "%s" must be <= %d, got "%s"', key, maximum, raw)
             sys.exit(1)
 
-    def set_runtime_override(self, key, value):
+    def set_runtime_override(self, key: str, value: Any) -> None:
         self._runtime_overrides[key] = value
         self.YTDL_OPTIONS[key] = value
 
-    def remove_runtime_override(self, key):
+    def remove_runtime_override(self, key: str) -> None:
         self._runtime_overrides.pop(key, None)
         self.YTDL_OPTIONS.pop(key, None)
 
@@ -172,7 +173,7 @@ class Config:
         'ALLOW_YTDL_OPTIONS_OVERRIDES',
     )
 
-    def frontend_safe(self) -> dict:
+    def frontend_safe(self) -> dict[str, Any]:
         """Return only the config keys that are safe to expose to browser clients.
 
         Sensitive or server-only keys (YTDL_OPTIONS, file-system paths, TLS
@@ -227,10 +228,10 @@ config = Config()
 # Align root logger level with Config (keeps a single source of truth).
 # This re-applies the log level after Config loads, in case LOGLEVEL was
 # overridden by config file settings or differs from the environment variable.
-logging.getLogger().setLevel(parseLogLevel(str(config.LOGLEVEL)) or logging.INFO)
+logging.getLogger().setLevel(parse_log_level(str(config.LOGLEVEL)) or logging.INFO)
 
 class ObjectSerializer(json.JSONEncoder):
-    def default(self, obj):
+    def default(self, obj: Any) -> Any:
         # Prefer an explicit client-facing view when the object provides one
         # (e.g. DownloadInfo / SubscriptionInfo) so server-only or bulky fields
         # are never broadcast to browser clients.
@@ -260,7 +261,7 @@ def _is_within_state_dir(target: str | Path) -> bool:
 
 
 @web.middleware
-async def state_dir_guard(request, handler):
+async def state_dir_guard(request: web.Request, handler: Any) -> web.StreamResponse:
     for prefix, base in (
         (config.URL_PREFIX + 'download/', config.DOWNLOAD_DIR),
         (config.URL_PREFIX + 'audio_download/', config.AUDIO_DOWNLOAD_DIR),
@@ -282,7 +283,7 @@ VALID_VIDEO_CODECS = {'auto', 'h264', 'h265', 'av1', 'vp9'}
 VALID_VIDEO_FORMATS = {'any', 'mp4', 'ios'}
 VALID_AUDIO_FORMATS = {'m4a', 'mp3', 'opus', 'wav', 'flac'}
 VALID_THUMBNAIL_FORMATS = {'jpg'}
-def _parse_ytdl_options_overrides(value, *, enabled: bool) -> dict:
+def _parse_ytdl_options_overrides(value: Any, *, enabled: bool) -> dict[str, Any]:
     if value is None or value == '':
         return {}
 
@@ -379,7 +380,7 @@ async def _read_json_request(request: web.Request) -> dict:
     return post
 
 
-def parse_download_options(post: dict) -> dict:
+def parse_download_options(post: dict[str, Any]) -> dict[str, Any]:
     """Validate add body; raise HTTPBadRequest on invalid input."""
     url = post.get('url')
     download_type = post.get('download_type')
@@ -474,7 +475,7 @@ def parse_download_options(post: dict) -> dict:
 
 
 @routes.post(config.URL_PREFIX + 'add')
-async def add(request):
+async def add(request: web.Request) -> web.Response:
     log.info("Received request to add download")
     post = await _read_json_request(request)
     try:
@@ -508,20 +509,20 @@ async def add(request):
 
 
 @routes.get(config.URL_PREFIX + 'presets')
-async def presets(request):
+async def presets(request: web.Request) -> web.Response:
     return web.Response(
         text=serializer.encode({'presets': sorted(config.YTDL_OPTIONS_PRESETS.keys())}),
         content_type='application/json',
     )
 
 @routes.post(config.URL_PREFIX + 'cancel-add')
-async def cancel_add(request):
+async def cancel_add(request: web.Request) -> web.Response:
     dqueue.cancel_add()
     return web.Response(text=serializer.encode({'status': 'ok'}), content_type='application/json')
 
 
 @routes.post(config.URL_PREFIX + 'delete')
-async def delete(request):
+async def delete(request: web.Request) -> web.Response:
     post = await _read_json_request(request)
     ids = post.get('ids')
     where = post.get('where')
@@ -533,7 +534,7 @@ async def delete(request):
     return web.Response(text=serializer.encode(status))
 
 @routes.post(config.URL_PREFIX + 'start')
-async def start(request):
+async def start(request: web.Request) -> web.Response:
     post = await _read_json_request(request)
     ids = post.get('ids')
     log.info(f"Received request to start pending downloads for ids: {ids}")
@@ -544,7 +545,7 @@ async def start(request):
 COOKIES_PATH = Path(config.STATE_DIR) / 'cookies.txt'
 
 @routes.post(config.URL_PREFIX + 'upload-cookies')
-async def upload_cookies(request):
+async def upload_cookies(request: web.Request) -> web.Response:
     reader = await request.multipart()
     field = await reader.next()
     if field is None or field.name != 'cookies':
@@ -576,7 +577,7 @@ async def upload_cookies(request):
     return web.Response(text=serializer.encode({'status': 'ok', 'msg': f'Cookies uploaded ({size} bytes)'}))
 
 @routes.post(config.URL_PREFIX + 'delete-cookies')
-async def delete_cookies(request):
+async def delete_cookies(request: web.Request) -> web.Response:
     has_uploaded_cookies = COOKIES_PATH.exists()
     configured_cookiefile = config.YTDL_OPTIONS.get('cookiefile')
     has_manual_cookiefile = isinstance(configured_cookiefile, str) and configured_cookiefile and configured_cookiefile != str(COOKIES_PATH)
@@ -603,7 +604,7 @@ async def delete_cookies(request):
     return web.Response(text=serializer.encode({'status': 'ok'}))
 
 @routes.get(config.URL_PREFIX + 'cookie-status')
-async def cookie_status(request):
+async def cookie_status(request: web.Request) -> web.Response:
     configured_cookiefile = config.YTDL_OPTIONS.get('cookiefile')
     has_configured_cookies = isinstance(configured_cookiefile, str) and Path(configured_cookiefile).exists()
     has_uploaded_cookies = COOKIES_PATH.exists()
@@ -611,7 +612,7 @@ async def cookie_status(request):
     return web.Response(text=serializer.encode({'status': 'ok', 'has_cookies': exists}))
 
 @routes.get(config.URL_PREFIX + 'history')
-async def history(request):
+async def history(request: web.Request) -> web.Response:
     history = { 'done': [], 'queue': [], 'pending': []}
 
     for _, v in dqueue.queue.saved_items():
@@ -625,12 +626,12 @@ async def history(request):
     return web.Response(text=serializer.encode(history))
 
 @routes.get(config.URL_PREFIX + 'queue')
-async def queue_state(request):
+async def queue_state(request: web.Request) -> web.Response:
     state = dqueue.get()
     return web.Response(text=serializer.encode(state), content_type='application/json')
 
 @routes.get(config.URL_PREFIX + 'logs')
-async def get_logs(request):
+async def get_logs(request: web.Request) -> web.Response:
     dl_id = request.query.get('id')
     if not dl_id:
         raise web.HTTPBadRequest(reason='missing id')
@@ -643,18 +644,18 @@ async def get_logs(request):
     return web.Response(text=serializer.encode(lines), content_type='application/json')
 
 @routes.get(config.URL_PREFIX + 'configuration')
-async def configuration(request):
+async def configuration(request: web.Request) -> web.Response:
     return web.Response(text=serializer.encode(config.frontend_safe()), content_type='application/json')
 
 @routes.get(config.URL_PREFIX)
-async def index(request):
+async def index(request: web.Request) -> web.Response:
     response = web.FileResponse(Path(config.BASE_DIR) / 'ui/index.html')
     if 'metube_theme' not in request.cookies:
         response.set_cookie('metube_theme', config.DEFAULT_THEME)
     return response
 
 @routes.get(config.URL_PREFIX + 'robots.txt')
-async def robots(request):
+async def robots(request: web.Request) -> web.Response:
     if config.ROBOTS_TXT:
         response = web.FileResponse(Path(config.BASE_DIR) / config.ROBOTS_TXT)
     else:
@@ -664,7 +665,7 @@ async def robots(request):
     return response
 
 @routes.get(config.URL_PREFIX + 'version')
-async def version(request):
+async def version(request: web.Request) -> web.Response:
     return web.json_response({
         "yt-dlp": yt_dlp_version,
         "version": os.getenv("METUBE_VERSION", "dev")
@@ -700,7 +701,7 @@ app.router.add_route('OPTIONS', config.URL_PREFIX + 'upload-cookies', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'delete-cookies', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'logs', add_cors)
 
-async def on_prepare(request, response):
+async def on_prepare(request: web.Request, response: web.StreamResponse) -> None:
     origin = request.headers.get('Origin')
     if origin and _cors_origins and ('*' in _cors_origins or origin in _cors_origins):
         response.headers['Access-Control-Allow-Origin'] = origin
@@ -708,7 +709,7 @@ async def on_prepare(request, response):
 
 app.on_response_prepare.append(on_prepare)
 
-def supports_reuse_port():
+def supports_reuse_port() -> bool:
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
@@ -717,14 +718,13 @@ def supports_reuse_port():
     except (AttributeError, OSError):
         return False
 
-def isAccessLogEnabled():
+def is_access_log_enabled() -> logging.Logger | None:
     if config.ENABLE_ACCESSLOG:
         return access_logger
-    else:
-        return None
+    return None
 
 if __name__ == '__main__':
-    logging.getLogger().setLevel(parseLogLevel(config.LOGLEVEL) or logging.INFO)
+    logging.getLogger().setLevel(parse_log_level(config.LOGLEVEL) or logging.INFO)
     log.info(f"Listening on {config.HOST}:{config.PORT}")
 
 
@@ -736,8 +736,8 @@ if __name__ == '__main__':
     if config.HTTPS:
         ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         ssl_context.load_cert_chain(certfile=config.CERTFILE, keyfile=config.KEYFILE)
-        web.run_app(app, host=config.HOST, port=int(config.PORT), reuse_port=supports_reuse_port(), ssl_context=ssl_context, access_log=isAccessLogEnabled())
+        web.run_app(app, host=config.HOST, port=int(config.PORT), reuse_port=supports_reuse_port(), ssl_context=ssl_context, access_log=is_access_log_enabled())
     else:
-        web.run_app(app, host=config.HOST, port=int(config.PORT), reuse_port=supports_reuse_port(), access_log=isAccessLogEnabled())
+        web.run_app(app, host=config.HOST, port=int(config.PORT), reuse_port=supports_reuse_port(), access_log=is_access_log_enabled())
     if _RESTART_FOR_UPDATE:
         sys.exit(42)

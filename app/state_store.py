@@ -47,7 +47,7 @@ def from_json_compatible(value: Any) -> Any:
 
 
 class AtomicJsonStore:
-    def __init__(self, path: str | Path, *, kind: str, schema_version: int = STATE_SCHEMA_VERSION):
+    def __init__(self, path: Path, *, kind: str, schema_version: int = STATE_SCHEMA_VERSION) -> None:
         self.path = Path(path)
         self.kind = kind
         self.schema_version = schema_version

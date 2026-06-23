@@ -88,7 +88,7 @@ def _resolve_outtmpl_fields(template: str, info_dict: dict, prefixes: tuple[str,
 _MAX_ENTRY_SANITIZE_DEPTH = 64
 
 
-def _sanitize_entry_for_pickle(obj, _depth=0):
+def _sanitize_entry_for_pickle(obj: Any, _depth: int = 0) -> Any:
     """Recursively normalize yt-dlp ``info_dict`` data so it can be stored in shelve/pickle.
 
     Live streams and newer yt-dlp versions may nest generators, iterators, sets, or
@@ -122,40 +122,40 @@ def _sanitize_entry_for_pickle(obj, _depth=0):
 
 
 class DownloadQueueNotifier:
-    async def added(self, dl):
+    async def added(self, dl: "DownloadInfo") -> None:
         raise NotImplementedError
 
-    async def updated(self, dl):
+    async def updated(self, dl: "DownloadInfo") -> None:
         raise NotImplementedError
 
-    async def completed(self, dl):
+    async def completed(self, dl: "DownloadInfo") -> None:
         raise NotImplementedError
 
-    async def canceled(self, id):
+    async def canceled(self, id: str) -> None:
         raise NotImplementedError
 
-    async def cleared(self, id):
+    async def cleared(self, id: str) -> None:
         raise NotImplementedError
 
 class DownloadInfo:
     def __init__(
         self,
-        id,
-        title,
-        url,
-        quality,
-        download_type,
-        codec,
-        format,
-        folder,
-        custom_name_prefix,
-        error,
-        entry,
-        playlist_item_limit,
-        subtitle_langs=None,
-        ytdl_options_presets=None,
-        ytdl_options_overrides=None,
-    ):
+        id: str,
+        title: str,
+        url: str,
+        quality: str,
+        download_type: str,
+        codec: str,
+        format: str,
+        folder: str | None,
+        custom_name_prefix: str,
+        error: str | None,
+        entry: dict[str, Any] | None,
+        playlist_item_limit: int,
+        subtitle_langs: list[str] | None = None,
+        ytdl_options_presets: list[str] | None = None,
+        ytdl_options_overrides: dict[str, Any] | None = None,
+    ) -> None:
         self.id = id if len(custom_name_prefix) == 0 else f'{custom_name_prefix}.{id}'
         self.title = title if len(custom_name_prefix) == 0 else f'{custom_name_prefix}.{title}'
         self.url = url
@@ -192,7 +192,7 @@ class DownloadInfo:
             if k not in self._PUBLIC_EXCLUDED_FIELDS
         }
 
-    def __setstate__(self, state):
+    def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
         if not getattr(self, "codec", None):
             self.codec = "auto"
@@ -306,7 +306,16 @@ class Download:
             cls.manager.shutdown()
             cls.manager = None
 
-    def __init__(self, download_dir, temp_dir, output_template, quality, format, ytdl_opts, info):
+    def __init__(
+        self,
+        download_dir: Path | None,
+        temp_dir: Path | None,
+        output_template: str | None,
+        quality: str,
+        format: str,
+        ytdl_opts: dict[str, Any],
+        info: DownloadInfo,
+    ) -> None:
         self.download_dir = download_dir
         self.temp_dir = temp_dir
         self.output_template = output_template
@@ -319,7 +328,6 @@ class Download:
         )
         self.ytdl_opts = get_opts(
             getattr(info, 'download_type', 'video'),
-            getattr(info, 'codec', 'auto'),
             format,
             quality,
             ytdl_opts,
@@ -402,7 +410,7 @@ class Download:
             log.error(f"Download error for {self.info.title}: {str(exc)}")
             self.status_queue.put({'status': 'error', 'msg': str(exc)})
 
-    async def start(self, notifier):
+    async def start(self, notifier: DownloadQueueNotifier) -> None:
         log.info(f"Preparing download for: {self.info.title}")
         if Download.manager is None:
             Download.manager = multiprocessing.Manager()
@@ -422,7 +430,7 @@ class Download:
             self.status_queue.put(None)
         await self.status_task
 
-    def cancel(self):
+    def cancel(self) -> None:
         log.info(f"Cancelling download: {self.info.title}")
         if self.running():
             try:
@@ -433,21 +441,21 @@ class Download:
         if self.status_queue is not None:
             self.status_queue.put(None)
 
-    def close(self):
+    def close(self) -> None:
         log.info(f"Closing download process for: {self.info.title}")
         if self.started():
             self.proc.close()
 
-    def running(self):
+    def running(self) -> bool:
         try:
             return self.proc is not None and self.proc.is_alive()
         except ValueError:
             return False
 
-    def started(self):
+    def started(self) -> bool:
         return self.proc is not None
 
-    async def update_status(self):
+    async def update_status(self) -> None:
         while True:
             status = await self.loop.run_in_executor(None, self.status_queue.get)
             if status is None:
@@ -506,22 +514,30 @@ class Download:
             await self.notifier.updated(self.info)
 
 class PersistentQueue:
-    def __init__(self, name, path):
+    def __init__(self, name: str, path: Path) -> None:
         self.identifier = name
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.path = str(path.with_suffix('.json'))
+        self.path = path.with_suffix('.json')
         self.store = AtomicJsonStore(self.path, kind=f"persistent_queue:{name}")
-        self.dict = OrderedDict()
+        self.dict: OrderedDict[str, Download] = OrderedDict()
 
-    def load(self):
+    def load(self) -> None:
         for k, v in self.saved_items():
-            self.dict[k] = Download(None, None, None, getattr(v, 'quality', 'best'), getattr(v, 'format', 'any'), {}, v)
+            self.dict[k] = Download(
+                download_dir=None,
+                temp_dir=None,
+                output_template=None,
+                quality=getattr(v, 'quality', 'best'),
+                format=getattr(v, 'format', 'any'),
+                ytdl_opts={},
+                info=v,
+            )
 
-    def exists(self, key):
+    def exists(self, key: str) -> bool:
         return key in self.dict
 
-    def get(self, key):
+    def get(self, key: str) -> Download:
         return self.dict[key]
 
     def items(self):
@@ -574,7 +590,7 @@ class PersistentQueue:
             log.warning("PersistentQueue:%s state file did not contain an items list", self.identifier)
         return []
 
-    def put(self, value):
+    def put(self, value: Download) -> None:
         key = value.info.url
         old = self.dict.get(key)
         self.dict[key] = value
@@ -587,7 +603,7 @@ class PersistentQueue:
                 self.dict[key] = old
             raise
 
-    def delete(self, key):
+    def delete(self, key: str) -> None:
         if key in self.dict:
             old = self.dict[key]
             del self.dict[key]
@@ -601,11 +617,11 @@ class PersistentQueue:
         k, v = next(iter(self.dict.items()))
         return k, v
 
-    def empty(self):
+    def empty(self) -> bool:
         return not bool(self.dict)
 
 class DownloadQueue:
-    def __init__(self, config, notifier):
+    def __init__(self, config: Any, notifier: DownloadQueueNotifier) -> None:
         self.config = config
         self.notifier = notifier
         _state = Path(self.config.STATE_DIR)
@@ -622,12 +638,12 @@ class DownloadQueue:
         self._add_generation += 1
         log.info('Playlist add operation canceled by user')
 
-    async def __import_queue(self):
-        for k, v in self.queue.saved_items():
+    async def __import_queue(self) -> None:
+        for _, v in self.queue.saved_items():
             await self.__add_download(v, True)
 
-    async def __import_pending(self):
-        for k, v in self.pending.saved_items():
+    async def __import_pending(self) -> None:
+        for _, v in self.pending.saved_items():
             await self.__add_download(v, False)
 
     async def initialize(self):
@@ -677,7 +693,7 @@ class DownloadQueue:
             log.debug(f'Auto-clearing completed download: {url}')
             await self.clear([url])
 
-    def _build_ytdl_options(self, ytdl_options_presets=None, ytdl_options_overrides=None):
+    def _build_ytdl_options(self, ytdl_options_presets: list[str] | None = None, ytdl_options_overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         """Merge global options, presets (in order), and per-download overrides."""
         opts = dict(self.config.YTDL_OPTIONS)
         for preset_name in ytdl_options_presets or []:
@@ -685,7 +701,7 @@ class DownloadQueue:
         opts.update(ytdl_options_overrides or {})
         return opts
 
-    def __extract_info(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
+    def __extract_info(self, url: str, ytdl_options_presets: list[str] | None = None, ytdl_options_overrides: dict[str, Any] | None = None) -> Any:
         debug_logging = logging.getLogger().isEnabledFor(logging.DEBUG)
         user_opts = self._build_ytdl_options(ytdl_options_presets, ytdl_options_overrides)
         params = {
@@ -703,7 +719,7 @@ class DownloadQueue:
             params['impersonate'] = yt_dlp.networking.impersonate.ImpersonateTarget.from_str(imp)
         return yt_dlp.YoutubeDL(params=params).extract_info(url, download=False)
 
-    def __calc_download_path(self, download_type, folder):
+    def __calc_download_path(self, download_type: str, folder: str | None) -> tuple[Path | None, dict[str, Any] | None]:
         base_directory = self.config.AUDIO_DOWNLOAD_DIR if download_type == 'audio' else self.config.DOWNLOAD_DIR
         if folder:
             real_base = Path(base_directory).resolve()
@@ -711,10 +727,8 @@ class DownloadQueue:
             if not dldirectory.is_relative_to(real_base):
                 return None, {'status': 'error', 'msg': f'Folder "{folder}" must resolve inside the base download directory "{real_base}"'}
             dldirectory.mkdir(parents=True, exist_ok=True)
-            return str(dldirectory), None
-        else:
-            dldirectory = base_directory
-        return dldirectory, None
+            return dldirectory, None
+        return Path(base_directory), None
 
     async def __add_download(self, dl, auto_start):
         dldirectory, error_message = self.__calc_download_path(dl.download_type, dl.folder)
@@ -740,7 +754,15 @@ class DownloadQueue:
         if playlist_item_limit > 0:
             log.info(f'playlist limit is set. Processing only first {playlist_item_limit} entries')
             ytdl_options['playlistend'] = playlist_item_limit
-        download = Download(dldirectory, self.config.TEMP_DIR, output, dl.quality, dl.format, ytdl_options, dl)
+        download = Download(
+            download_dir=dldirectory,
+            temp_dir=Path(self.config.TEMP_DIR),
+            output_template=output,
+            quality=dl.quality,
+            format=dl.format,
+            ytdl_opts=ytdl_options,
+            info=dl,
+        )
         if auto_start is True:
             self.queue.put(download)
             asyncio.create_task(self.__start_download(download))
@@ -750,21 +772,21 @@ class DownloadQueue:
 
     async def __add_entry(
         self,
-        entry,
-        download_type,
-        codec,
-        format,
-        quality,
-        folder,
-        custom_name_prefix,
-        playlist_item_limit,
-        auto_start,
-        subtitle_langs,
-        ytdl_options_presets,
-        ytdl_options_overrides,
-        already,
-        _add_gen=None,
-    ):
+        entry: dict[str, Any] | None,
+        download_type: str,
+        codec: str,
+        format: str,
+        quality: str,
+        folder: str | None,
+        custom_name_prefix: str,
+        playlist_item_limit: int,
+        auto_start: bool,
+        subtitle_langs: list[str],
+        ytdl_options_presets: list[str],
+        ytdl_options_overrides: dict[str, Any],
+        already: set[str],
+        _add_gen: int | None = None,
+    ) -> dict[str, Any]:
         if not entry:
             return {'status': 'error', 'msg': "Invalid/empty data was given."}
 
@@ -775,20 +797,20 @@ class DownloadQueue:
         if etype.startswith('url'):
             log.debug('Processing as a url')
             return await self.add(
-                entry['url'],
-                download_type,
-                codec,
-                format,
-                quality,
-                folder,
-                custom_name_prefix,
-                playlist_item_limit,
-                auto_start,
-                subtitle_langs,
-                ytdl_options_presets,
-                ytdl_options_overrides,
-                already,
-                _add_gen,
+                url=entry['url'],
+                download_type=download_type,
+                codec=codec,
+                format=format,
+                quality=quality,
+                folder=folder,
+                custom_name_prefix=custom_name_prefix,
+                playlist_item_limit=playlist_item_limit,
+                auto_start=auto_start,
+                subtitle_langs=subtitle_langs,
+                ytdl_options_presets=ytdl_options_presets,
+                ytdl_options_overrides=ytdl_options_overrides,
+                already=already,
+                _add_gen=_add_gen,
             )
         elif etype == 'playlist' or etype == 'channel':
             log.debug(f'Processing as a {etype}')
@@ -823,20 +845,20 @@ class DownloadQueue:
                         etr[f"{etype}_{property}"] = entry[property]
                 results.append(
                     await self.__add_entry(
-                        etr,
-                        download_type,
-                        codec,
-                        format,
-                        quality,
-                        folder,
-                        custom_name_prefix,
-                        playlist_item_limit,
-                        auto_start,
-                        subtitle_langs,
-                        ytdl_options_presets,
-                        ytdl_options_overrides,
-                        already,
-                        _add_gen,
+                        entry=etr,
+                        download_type=download_type,
+                        codec=codec,
+                        format=format,
+                        quality=quality,
+                        folder=folder,
+                        custom_name_prefix=custom_name_prefix,
+                        playlist_item_limit=playlist_item_limit,
+                        auto_start=auto_start,
+                        subtitle_langs=subtitle_langs,
+                        ytdl_options_presets=ytdl_options_presets,
+                        ytdl_options_overrides=ytdl_options_overrides,
+                        already=already,
+                        _add_gen=_add_gen,
                     )
                 )
             if any(res['status'] == 'error' for res in results):
@@ -872,21 +894,21 @@ class DownloadQueue:
 
     async def add(
         self,
-        url,
-        download_type,
-        codec,
-        format,
-        quality,
-        folder,
-        custom_name_prefix,
-        playlist_item_limit,
-        auto_start=True,
-        subtitle_langs=None,
-        ytdl_options_presets=None,
-        ytdl_options_overrides=None,
-        already=None,
-        _add_gen=None,
-    ):
+        url: str,
+        download_type: str,
+        codec: str,
+        format: str,
+        quality: str,
+        folder: str | None,
+        custom_name_prefix: str,
+        playlist_item_limit: int,
+        auto_start: bool = True,
+        subtitle_langs: list[str] | None = None,
+        ytdl_options_presets: list[str] | None = None,
+        ytdl_options_overrides: dict[str, Any] | None = None,
+        already: set[str] | None = None,
+        _add_gen: int | None = None,
+    ) -> dict[str, Any]:
         if ytdl_options_presets is None:
             ytdl_options_presets = []
         log.info(
@@ -910,59 +932,59 @@ class DownloadQueue:
         except yt_dlp.utils.YoutubeDLError as exc:
             return {'status': 'error', 'msg': str(exc)}
         return await self.__add_entry(
-            entry,
-            download_type,
-            codec,
-            format,
-            quality,
-            folder,
-            custom_name_prefix,
-            playlist_item_limit,
-            auto_start,
-            subtitle_langs or [],
-            ytdl_options_presets,
-            ytdl_options_overrides,
-            already,
-            _add_gen,
+            entry=entry,
+            download_type=download_type,
+            codec=codec,
+            format=format,
+            quality=quality,
+            folder=folder,
+            custom_name_prefix=custom_name_prefix,
+            playlist_item_limit=playlist_item_limit,
+            auto_start=auto_start,
+            subtitle_langs=subtitle_langs or [],
+            ytdl_options_presets=ytdl_options_presets,
+            ytdl_options_overrides=ytdl_options_overrides,
+            already=already,
+            _add_gen=_add_gen,
         )
 
     async def add_entry(
         self,
-        entry,
-        download_type,
-        codec,
-        format,
-        quality,
-        folder,
-        custom_name_prefix,
-        playlist_item_limit,
-        auto_start=True,
-        subtitle_langs=None,
-        ytdl_options_presets=None,
-        ytdl_options_overrides=None,
-    ):
+        entry: dict[str, Any],
+        download_type: str,
+        codec: str,
+        format: str,
+        quality: str,
+        folder: str | None,
+        custom_name_prefix: str,
+        playlist_item_limit: int,
+        auto_start: bool = True,
+        subtitle_langs: list[str] | None = None,
+        ytdl_options_presets: list[str] | None = None,
+        ytdl_options_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if ytdl_options_presets is None:
             ytdl_options_presets = []
         normalized_entry = copy.deepcopy(entry) if isinstance(entry, dict) else entry
         already = set()
         return await self.__add_entry(
-            normalized_entry,
-            download_type,
-            codec,
-            format,
-            quality,
-            folder,
-            custom_name_prefix,
-            playlist_item_limit,
-            auto_start,
-            subtitle_langs or [],
-            ytdl_options_presets,
-            ytdl_options_overrides,
-            already,
-            None,
+            entry=normalized_entry,
+            download_type=download_type,
+            codec=codec,
+            format=format,
+            quality=quality,
+            folder=folder,
+            custom_name_prefix=custom_name_prefix,
+            playlist_item_limit=playlist_item_limit,
+            auto_start=auto_start,
+            subtitle_langs=subtitle_langs or [],
+            ytdl_options_presets=ytdl_options_presets,
+            ytdl_options_overrides=ytdl_options_overrides,
+            already=already,
+            _add_gen=None,
         )
 
-    async def start_pending(self, ids):
+    async def start_pending(self, ids: list[str]) -> dict[str, Any]:
         for id in ids:
             if self.pending.exists(id):
                 dl = self.pending.get(id)
@@ -973,7 +995,7 @@ class DownloadQueue:
             log.warning(f'requested start for non-existent download {id}')
         return {'status': 'ok'}
 
-    async def cancel(self, ids):
+    async def cancel(self, ids: list[str]) -> dict[str, Any]:
         for id in ids:
             # Track URL so playlist add loop won't re-queue it
             self._canceled_urls.add(id)
@@ -993,7 +1015,7 @@ class DownloadQueue:
                 await self.notifier.canceled(id)
         return {'status': 'ok'}
 
-    async def clear(self, ids):
+    async def clear(self, ids: list[str]) -> dict[str, Any]:
         for id in ids:
             if not self.done.exists(id):
                 log.warning(f'requested delete for non-existent download {id}')
@@ -1014,7 +1036,7 @@ class DownloadQueue:
                             rel_names.append(extra['filename'])
                     for rel_name in rel_names:
                         try:
-                            (Path(dldirectory) / rel_name).unlink()
+                            (dldirectory / rel_name).unlink()
                         except FileNotFoundError:
                             pass
                         except OSError as e:
@@ -1023,7 +1045,7 @@ class DownloadQueue:
             await self.notifier.cleared(id)
         return {'status': 'ok'}
 
-    def get(self):
+    def get(self) -> tuple[list, list]:
         return (list((k, v.info) for k, v in self.queue.items()) +
                 list((k, v.info) for k, v in self.pending.items()),
                 list((k, v.info) for k, v in self.done.items()))

@@ -1,11 +1,12 @@
 import copy
+from typing import Any
 
 AUDIO_FORMATS = ("m4a", "mp3", "opus", "wav", "flac")
 CODEC_FILTER_MAP = {
-    'h264': "[vcodec~='^(h264|avc)']",
-    'h265': "[vcodec~='^(h265|hevc)']",
-    'av1':  "[vcodec~='^av0?1']",
-    'vp9':  "[vcodec~='^vp0?9']",
+    "h264": "[vcodec~='^(h264|avc)']",
+    "h265": "[vcodec~='^(h265|hevc)']",
+    "av1": "[vcodec~='^av0?1']",
+    "vp9": "[vcodec~='^vp0?9']",
 }
 
 
@@ -64,18 +65,16 @@ def get_format(download_type: str, codec: str, format: str, quality: str) -> str
 
 def get_opts(
     download_type: str,
-    _codec: str,
     format: str,
     quality: str,
-    ytdl_opts: dict,
-    subtitle_langs: list = (),
-) -> dict:
+    ytdl_opts: dict[str, Any],
+    subtitle_langs: list[str] | tuple[str, ...] = (),
+) -> dict[str, Any]:
     """
     Returns extra yt-dlp options/postprocessors.
 
     Args:
       download_type (str): selected content type
-      codec (str): selected codec (unused currently, kept for API consistency)
       format (str): selected format/profile
       quality (str): selected quality
       ytdl_opts (dict): current options selected
@@ -113,9 +112,7 @@ def get_opts(
     if download_type == "thumbnail":
         opts["skip_download"] = True
         opts["writethumbnail"] = True
-        postprocessors.append(
-            {"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"}
-        )
+        postprocessors.append({"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"})
 
     if download_type == "captions":
         langs = list(subtitle_langs) if subtitle_langs else ["en"]
@@ -131,7 +128,5 @@ def get_opts(
         # interleave manual + auto variants per language: ["en", "en-orig", "de", "de-orig"]
         opts["subtitleslangs"] = [v for lang in subtitle_langs for v in (lang, f"{lang}-orig")]
 
-    opts["postprocessors"] = postprocessors + (
-        opts["postprocessors"] if "postprocessors" in opts else []
-    )
+    opts["postprocessors"] = postprocessors + (opts["postprocessors"] if "postprocessors" in opts else [])
     return opts

@@ -11,12 +11,12 @@ import main
 
 class ParseLogLevelTests(unittest.TestCase):
     def test_valid_levels(self):
-        self.assertEqual(main.parseLogLevel("INFO"), logging.INFO)
-        self.assertEqual(main.parseLogLevel("debug"), logging.DEBUG)
+        self.assertEqual(main.parse_log_level("INFO"), logging.INFO)
+        self.assertEqual(main.parse_log_level("debug"), logging.DEBUG)
 
     def test_invalid_returns_none(self):
-        self.assertIsNone(main.parseLogLevel("not_a_level"))
-        self.assertIsNone(main.parseLogLevel(123))
+        self.assertIsNone(main.parse_log_level("not_a_level"))
+        self.assertIsNone(main.parse_log_level(123))
 
 
 class ObjectSerializerTests(unittest.TestCase):

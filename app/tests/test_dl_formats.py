@@ -17,11 +17,11 @@ class DlFormatsTests(unittest.TestCase):
             get_format("audio", "auto", "invalid", "best")
 
     def test_wav_does_not_enable_thumbnail_postprocessing(self):
-        opts = get_opts("audio", "auto", "wav", "best", {})
+        opts = get_opts("audio", "wav", "best", {})
         self.assertNotIn("writethumbnail", opts)
 
     def test_mp3_enables_thumbnail_postprocessing(self):
-        opts = get_opts("audio", "auto", "mp3", "best", {})
+        opts = get_opts("audio", "mp3", "best", {})
         self.assertTrue(opts.get("writethumbnail"))
 
     def test_custom_format_passthrough(self):
@@ -66,27 +66,27 @@ class DlFormatsTests(unittest.TestCase):
     def test_get_opts_deepcopy_does_not_mutate_input(self):
         base = {"postprocessors": [{"key": "Existing"}]}
         orig = copy.deepcopy(base)
-        get_opts("audio", "auto", "mp3", "best", base)
+        get_opts("audio", "mp3", "best", base)
         self.assertEqual(base, orig)
 
     def test_get_opts_audio_m4a_postprocessors(self):
-        opts = get_opts("audio", "auto", "m4a", "best", {})
+        opts = get_opts("audio", "m4a", "best", {})
         keys = [p["key"] for p in opts["postprocessors"]]
         self.assertIn("FFmpegExtractAudio", keys)
 
     def test_get_opts_audio_mp3_quality_not_best(self):
-        opts = get_opts("audio", "auto", "mp3", "192", {})
+        opts = get_opts("audio", "mp3", "192", {})
         ext = next(p for p in opts["postprocessors"] if p["key"] == "FFmpegExtractAudio")
         self.assertEqual(ext["preferredquality"], "192")
 
     def test_get_opts_thumbnail_skip_download(self):
-        opts = get_opts("thumbnail", "auto", "jpg", "best", {})
+        opts = get_opts("thumbnail", "jpg", "best", {})
         self.assertTrue(opts.get("skip_download"))
         self.assertTrue(opts.get("writethumbnail"))
 
     def test_get_opts_captions_subtitle_langs(self):
         opts = get_opts(
-            "captions", "auto", "srt", "best", {}, subtitle_langs=["it"]
+            "captions", "srt", "best", {}, subtitle_langs=["it"]
         )
         self.assertTrue(opts.get("writesubtitles"))
         self.assertTrue(opts.get("writeautomaticsub"))
@@ -94,27 +94,27 @@ class DlFormatsTests(unittest.TestCase):
 
     def test_get_opts_captions_multi_lang(self):
         opts = get_opts(
-            "captions", "auto", "srt", "best", {}, subtitle_langs=["en", "de"]
+            "captions", "srt", "best", {}, subtitle_langs=["en", "de"]
         )
         self.assertEqual(opts["subtitleslangs"], ["en", "en-orig", "de", "de-orig"])
 
     def test_get_opts_captions_empty_langs_defaults_en(self):
-        opts = get_opts("captions", "auto", "srt", "best", {})
+        opts = get_opts("captions", "srt", "best", {})
         self.assertEqual(opts["subtitleslangs"], ["en", "en-orig"])
 
     def test_get_opts_video_subtitle_langs(self):
-        opts = get_opts("video", "auto", "mp4", "best", {}, subtitle_langs=["en", "de"])
+        opts = get_opts("video", "mp4", "best", {}, subtitle_langs=["en", "de"])
         self.assertTrue(opts.get("writesubtitles"))
         self.assertTrue(opts.get("writeautomaticsub"))
         self.assertEqual(opts["subtitleslangs"], ["en", "en-orig", "de", "de-orig"])
 
     def test_get_opts_video_no_subtitle_langs(self):
-        opts = get_opts("video", "auto", "mp4", "best", {})
+        opts = get_opts("video", "mp4", "best", {})
         self.assertNotIn("writesubtitles", opts)
         self.assertNotIn("subtitleslangs", opts)
 
     def test_get_opts_merges_existing_postprocessors(self):
-        opts = get_opts("audio", "auto", "opus", "best", {"postprocessors": [{"key": "SponsorBlock"}]})
+        opts = get_opts("audio", "opus", "best", {"postprocessors": [{"key": "SponsorBlock"}]})
         keys = [p["key"] for p in opts["postprocessors"]]
         self.assertIn("SponsorBlock", keys)
         self.assertIn("FFmpegExtractAudio", keys)
