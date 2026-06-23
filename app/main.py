@@ -584,8 +584,6 @@ async def add(request):
         subtitle_langs=o['subtitle_langs'],
         ytdl_options_presets=o['ytdl_options_presets'],
         ytdl_options_overrides=o['ytdl_options_overrides'],
-        clip_start=None,
-        clip_end=None,
     )
     return web.Response(text=serializer.encode(status))
 

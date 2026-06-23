@@ -204,8 +204,6 @@ class DownloadInfo:
         subtitle_langs=None,
         ytdl_options_presets=None,
         ytdl_options_overrides=None,
-        clip_start=None,
-        clip_end=None,
         live_status=None,
         live_release_timestamp=None,
     ):
@@ -232,8 +230,6 @@ class DownloadInfo:
         self.subtitle_langs = list(subtitle_langs) if subtitle_langs else []
         self.ytdl_options_presets = list(ytdl_options_presets or [])
         self.ytdl_options_overrides = dict(ytdl_options_overrides or {})
-        self.clip_start = clip_start
-        self.clip_end = clip_end
         self.live_status = live_status
         self.live_release_timestamp = live_release_timestamp
         self.subtitle_files = []
@@ -318,10 +314,6 @@ class DownloadInfo:
             self.subtitle_files = []
         if not hasattr(self, "chapter_files"):
             self.chapter_files = []
-        if not hasattr(self, "clip_start"):
-            self.clip_start = None
-        if not hasattr(self, "clip_end"):
-            self.clip_end = None
         if not hasattr(self, "live_status"):
             self.live_status = None
         if not hasattr(self, "live_release_timestamp"):
@@ -347,8 +339,6 @@ _PERSISTED_DOWNLOAD_FIELDS = (
     "subtitle_langs",
     "ytdl_options_presets",
     "ytdl_options_overrides",
-    "clip_start",
-    "clip_end",
     "live_status",
     "live_release_timestamp",
     "status",
@@ -533,16 +523,6 @@ class Download:
                     'key': 'FFmpegSplitChapters',
                     'force_keyframes': False
                 })
-
-            clip_start = getattr(self.info, 'clip_start', None)
-            clip_end = getattr(self.info, 'clip_end', None)
-            if clip_start is not None or clip_end is not None:
-                start = float(clip_start) if clip_start is not None else 0.0
-                end = float(clip_end) if clip_end is not None else float('inf')
-                ytdl_params['download_ranges'] = yt_dlp.utils.download_range_func(
-                    None,
-                    [(start, end)],
-                )
 
             ret = yt_dlp.YoutubeDL(params=ytdl_params).download([self.info.url])
             self.status_queue.put({'status': 'finished' if ret == 0 else 'error'})
@@ -1143,8 +1123,6 @@ class DownloadQueue:
         subtitle_langs,
         ytdl_options_presets,
         ytdl_options_overrides,
-        clip_start,
-        clip_end,
         already,
         _add_gen=None,
     ):
@@ -1179,8 +1157,6 @@ class DownloadQueue:
                 subtitle_langs,
                 ytdl_options_presets,
                 ytdl_options_overrides,
-                clip_start,
-                clip_end,
                 already,
                 _add_gen,
             )
@@ -1232,8 +1208,6 @@ class DownloadQueue:
                         subtitle_langs,
                         ytdl_options_presets,
                         ytdl_options_overrides,
-                        clip_start,
-                        clip_end,
                         already,
                         _add_gen,
                     )
@@ -1267,8 +1241,6 @@ class DownloadQueue:
                     subtitle_langs=subtitle_langs,
                     ytdl_options_presets=ytdl_options_presets,
                     ytdl_options_overrides=ytdl_options_overrides,
-                    clip_start=clip_start,
-                    clip_end=clip_end,
                     live_status=entry.get('live_status'),
                     live_release_timestamp=entry.get('release_timestamp'),
                 )
@@ -1293,8 +1265,6 @@ class DownloadQueue:
         subtitle_langs=None,
         ytdl_options_presets=None,
         ytdl_options_overrides=None,
-        clip_start=None,
-        clip_end=None,
         already=None,
         _add_gen=None,
     ):
@@ -1303,7 +1273,7 @@ class DownloadQueue:
         log.info(
             f'adding {url}: {download_type=} {codec=} {format=} {quality=} {already=} {folder=} {custom_name_prefix=} '
             f'{playlist_item_limit=} {auto_start=} {split_by_chapters=} {chapter_template=} '
-            f'{subtitle_mode=} {subtitle_langs=} {ytdl_options_presets=} {clip_start=} {clip_end=}'
+            f'{subtitle_mode=} {subtitle_langs=} {ytdl_options_presets=}'
         )
         if already is None:
             _add_gen = self._add_generation
@@ -1337,8 +1307,6 @@ class DownloadQueue:
             subtitle_langs or [],
             ytdl_options_presets,
             ytdl_options_overrides,
-            clip_start,
-            clip_end,
             already,
             _add_gen,
         )
@@ -1360,8 +1328,6 @@ class DownloadQueue:
         subtitle_langs=None,
         ytdl_options_presets=None,
         ytdl_options_overrides=None,
-        clip_start=None,
-        clip_end=None,
     ):
         if ytdl_options_presets is None:
             ytdl_options_presets = []
@@ -1383,8 +1349,6 @@ class DownloadQueue:
             subtitle_langs or [],
             ytdl_options_presets,
             ytdl_options_overrides,
-            clip_start,
-            clip_end,
             already,
             None,
         )

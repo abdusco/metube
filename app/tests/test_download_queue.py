@@ -354,41 +354,6 @@ async def test_extract_info_metube_extract_keys_win_over_preset(dq_env):
     assert captured_params[0]["noplaylist"] is True
 
 
-@pytest.mark.asyncio
-async def test_add_sets_clip_bounds_on_download_info(dq_env):
-    notifier = AsyncMock()
-
-    def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
-        return {
-            "_type": "video",
-            "id": "vid1",
-            "title": "Test Video",
-            "url": url,
-            "webpage_url": url,
-        }
-
-    dq = DownloadQueue(dq_env, notifier)
-    with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract):
-        result = await dq.add(
-            "https://example.com/clip",
-            "video",
-            "auto",
-            "any",
-            "best",
-            "",
-            "",
-            0,
-            auto_start=False,
-            clip_start=10.0,
-            clip_end=99.5,
-        )
-
-    assert result["status"] == "ok"
-    download = dq.pending.get("https://example.com/clip")
-    assert download.info.clip_start == 10.0
-    assert download.info.clip_end == 99.5
-
-
 def _upcoming_entry(url: str, *, release_timestamp: float | None = None) -> dict:
     return {
         "_type": "video",
