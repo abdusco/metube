@@ -39,13 +39,12 @@ Certain values can be set via environment variables, using the `-e` parameter on
 
 * __MAX_CONCURRENT_DOWNLOADS__: Maximum number of simultaneous downloads allowed. For example, if set to `5`, then at most five downloads will run concurrently, and any additional downloads will wait until one of the active downloads completes. Defaults to `3`. 
 * __DELETE_FILE_ON_TRASHCAN__: if `true`, downloaded files are deleted on the server, when they are trashed from the "Completed" section of the UI. Defaults to `false`.
-* __CLEAR_COMPLETED_AFTER__: Number of seconds after which completed (and failed) downloads are automatically removed from the "Completed" list. Defaults to `0` (disabled).
+* __CLEAR_COMPLETED_AFTER__: Number of seconds after which completed (and failed) downloads are automatically removed from the "Completed" list when a new download is added. Defaults to `0` (disabled).
 
 ### 📁 Storage & Directories
 
 * __DOWNLOAD_DIR__: Path to where the downloads will be saved. Defaults to `/downloads` in the Docker image, and `.` otherwise.
-* __DOWNLOAD_DIRS_INDEXABLE__: If `true`, the download directory is indexable on the web server. Defaults to `false`.
-* __STATE_DIR__: Path to where MeTube will store its persistent state files (`queue.json`, `pending.json`, `completed.json`). Defaults to `/downloads/.metube` in the Docker image, and `.` otherwise.
+* __STATE_DIR__: Path to where MeTube will store its persistent state (`jobs.sqlite3`). Defaults to `/downloads/.metube` in the Docker image, and `.` otherwise.
 * __TEMP_DIR__: Path where intermediary download files will be saved. Defaults to `/downloads` in the Docker image, and `.` otherwise.
   * Set this to an SSD or RAM filesystem (e.g., `tmpfs`) for better performance.
   * __Note__: Using a RAM filesystem may prevent downloads from being resumed.
@@ -54,32 +53,22 @@ Certain values can be set via environment variables, using the `-e` parameter on
 ### 📝 File Naming & yt-dlp
 
 * __OUTPUT_TEMPLATE__: The template for the filenames of the downloaded videos, formatted according to [this spec](https://github.com/yt-dlp/yt-dlp/blob/master/README.md#output-template). Defaults to `%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s`.
-* __OUTPUT_TEMPLATE_PLAYLIST__: The template for the filenames of the downloaded videos when downloaded as a playlist. Defaults to `%(playlist_title)s/%(title)s.%(ext)s`. Set to empty to use `OUTPUT_TEMPLATE` instead.
-* __OUTPUT_TEMPLATE_CHANNEL__: The template for the filenames of the downloaded videos when downloaded as a channel. Defaults to `%(channel)s/%(title)s.%(ext)s`. Set to empty to use `OUTPUT_TEMPLATE` instead.
 * __YTDL_OPTIONS__: Additional options to pass to yt-dlp, as a JSON object. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options) for details, examples, and available options reference.
-* __YTDL_OPTIONS_FILE__: Path to a JSON file containing yt-dlp options. Loaded on startup. See [Configuring yt-dlp options](#%EF%B8%8F-configuring-yt-dlp-options).
 * __YTDL_NIGHTLY_UPDATE_TIME__: If set, will cause MeTube to use [nightly yt-dlp builds](https://github.com/yt-dlp/yt-dlp-nightly-builds) instead of the stable releases. Set to the time (`HH:MM`, 24-hour) when you want the daily upgrades and MeTube restart to happen. Defaults to empty (disabled).
 
 ### 🌐 Web Server & URLs
 
 * __HOST__: The host address the web server will bind to. Defaults to `0.0.0.0` (all interfaces).
 * __PORT__: The port number the web server will listen on. Defaults to `8081`.
-* __URL_PREFIX__: Base path for the web server (for use when hosting behind a reverse proxy). Defaults to `/`.
 * __PUBLIC_HOST_URL__: Base URL for the download links shown in the UI for completed files. By default, MeTube serves them under its own URL. If your download directory is accessible on another URL and you want the download links to be based there, use this variable to set it.
-* __HTTPS__: Use `https` instead of `http` (__CERTFILE__ and __KEYFILE__ required). Defaults to `false`.
-* __CERTFILE__: HTTPS certificate file path.
-* __KEYFILE__: HTTPS key file path.
 * __CORS_ALLOWED_ORIGINS__: Comma-separated list of origins permitted to make cross-origin requests to the MeTube API. When unset or empty, all cross-origin requests are denied. Set to `*` to allow all origins. This must be configured for [browser extensions](#-browser-extensions), [bookmarklets](#-bookmarklet), and any other browser-based tools that contact MeTube from a different origin. For browser extensions use `*` (see below); for bookmarklets you can list specific sites, e.g. `https://www.youtube.com,https://www.vimeo.com`.
-* __ROBOTS_TXT__: A path to a `robots.txt` file mounted in the container.
 
 ### 🏠 Basic Setup
 
 * __PUID__: User under which MeTube will run. Defaults to `1000` (legacy `UID` also supported).
 * __PGID__: Group under which MeTube will run. Defaults to `1000` (legacy `GID` also supported).
 * __UMASK__: Umask value used by MeTube. Defaults to `022`.
-* __DEFAULT_THEME__: Default theme to use for the UI, can be set to `light`, `dark`, or `auto`. Defaults to `auto`.
-* __LOGLEVEL__: Log level, can be set to `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, or `NONE`. Defaults to `INFO`. 
-* __ENABLE_ACCESSLOG__: Whether to enable access log. Defaults to `false`.
+* __LOGLEVEL__: Log level, can be set to `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, or `NONE`. Defaults to `INFO`.
 
 ## 🎛️ Configuring yt-dlp options
 
@@ -93,36 +82,12 @@ yt-dlp options in MeTube are expressed as JSON objects. The keys are yt-dlp API 
 
 ### Global options
 
-Global options form the baseline for every download. There are two ways to define them, and you can use either or both:
-
-**Inline via environment variable** (`YTDL_OPTIONS`) — pass a JSON object directly:
+Global options form the baseline for every download. Pass a JSON object via `YTDL_OPTIONS`:
 
 ```yaml
 environment:
   - 'YTDL_OPTIONS={"writesubtitles": true, "subtitleslangs": ["en", "de"], "updatetime": false, "writethumbnail": true}'
 ```
-
-**Via a JSON file** (`YTDL_OPTIONS_FILE`) — mount a file into the container and point to it:
-
-```yaml
-volumes:
-  - /path/to/ytdl-options.json:/config/ytdl-options.json
-environment:
-  - YTDL_OPTIONS_FILE=/config/ytdl-options.json
-```
-
-where `ytdl-options.json` contains:
-
-```json
-{
-  "writesubtitles": true,
-  "subtitleslangs": ["en", "de"],
-  "updatetime": false,
-  "writethumbnail": true
-}
-```
-
-The file is loaded on startup. If you use both methods and they define the same key, the **file takes precedence**.
 
 MeTube always forces its own flat-extract behaviour during the initial metadata fetch (`extract_flat`, `noplaylist`, etc.).
 
@@ -194,29 +159,9 @@ javascript:!function(){function notify(msg) {var sc = document.scrollingElement.
 
 [dotvhs](https://github.com/dotvhs) has created an [extension for Raycast](https://www.raycast.com/dot/metube) for adding videos to MeTube directly from Raycast.
 
-## 🔒 HTTPS support, and running behind a reverse proxy
+## 🔒 Running behind a reverse proxy
 
-It's possible to configure MeTube to listen in HTTPS mode. `docker-compose` example:
-
-```yaml
-services:
-  metube:
-    image: ghcr.io/abdusco/metube
-    container_name: metube
-    restart: unless-stopped
-    ports:
-      - "8081:8081"
-    volumes:
-      - /path/to/downloads:/downloads
-      - /path/to/ssl/crt:/ssl/crt.pem
-      - /path/to/ssl/key:/ssl/key.pem
-    environment:
-      - HTTPS=true
-      - CERTFILE=/ssl/crt.pem
-      - KEYFILE=/ssl/key.pem
-```
-
-MeTube can also run behind a reverse proxy for HTTPS termination or authentication. When serving under a subdirectory, set `URL_PREFIX` accordingly.
+MeTube can run behind a reverse proxy for HTTPS termination or authentication.
 
 The [linuxserver/swag](https://docs.linuxserver.io/general/swag) image includes ready-made snippets for MeTube in [subfolder](https://github.com/linuxserver/reverse-proxy-confs/blob/master/metube.subfolder.conf.sample) and [subdomain](https://github.com/linuxserver/reverse-proxy-confs/blob/master/metube.subdomain.conf.sample) modes, plus Authelia for authentication.
 

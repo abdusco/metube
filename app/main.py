@@ -67,6 +67,7 @@ class Config(BaseSettings):
     PORT: int = 8081
     BASE_DIR: str = ""
     MAX_CONCURRENT_DOWNLOADS: int = 3
+    CLEAR_COMPLETED_AFTER: int = 0
     LOGLEVEL: str = "INFO"
     YTDL_NIGHTLY_UPDATE_TIME: str = ""
 
@@ -82,6 +83,13 @@ class Config(BaseSettings):
     def _valid_concurrency(cls, value: int) -> int:
         if value < 1:
             raise ValueError("must be >= 1")
+        return value
+
+    @field_validator("CLEAR_COMPLETED_AFTER")
+    @classmethod
+    def _valid_clear_after(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("must be >= 0")
         return value
 
     @field_validator("YTDL_NIGHTLY_UPDATE_TIME")

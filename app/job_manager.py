@@ -7,6 +7,7 @@ import typing
 import uuid
 from collections import defaultdict, deque
 from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import yt_dlp
@@ -69,10 +70,35 @@ class JobManager:
         return url
 
     def enqueue(self, job_create: JobCreate) -> EnqueueJobResult:
+        self._clear_expired()
         title = self._extract_title(job_create.url)
         job_id = str(uuid.uuid4())
         self.db.create_job(job_id, job_create, title)
         return EnqueueJobResult(id=job_id)
+
+    def _clear_expired(self) -> None:
+        if not self.config.CLEAR_COMPLETED_AFTER:
+            return
+        threshold = datetime.now(UTC) - timedelta(seconds=self.config.CLEAR_COMPLETED_AFTER)
+        jobs = self.db.list_done_older_than(threshold)
+        if not jobs:
+            return
+        if self.config.DELETE_FILE_ON_TRASHCAN:
+            base = Path(self.config.DOWNLOAD_DIR)
+            for job in jobs:
+                rel_names = [job.filename] if job.filename else []
+                rel_names += [sf.filename for sf in job.subtitle_files if sf.filename]
+                for rel_name in rel_names:
+                    try:
+                        (base / rel_name).unlink()
+                    except FileNotFoundError:
+                        pass
+                    except OSError as exc:
+                        log.warning("Could not delete file %s for %s: %s", rel_name, job.id, exc)
+        ids = [job.id for job in jobs]
+        for job_id in ids:
+            self._logs.pop(job_id, None)
+        self.db.delete_done(ids)
 
     def _scheduler_loop(self) -> None:
         while not self._stop.is_set():

@@ -23,7 +23,6 @@ def _ensure_test_env() -> None:
     os.environ["STATE_DIR"] = str(st)
     os.environ["TEMP_DIR"] = str(dl)
     os.environ["YTDL_OPTIONS"] = "{}"
-    os.environ["YTDL_OPTIONS_FILE"] = ""
     os.environ["BASE_DIR"] = str(base)
     os.environ["LOGLEVEL"] = "INFO"
     os.environ["METUBE_TEST_ENV_READY"] = "1"

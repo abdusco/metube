@@ -290,6 +290,14 @@ class JobDB:
                     (*ids, JobStatus.FINISHED, JobStatus.ERROR, JobStatus.CANCELED),
                 )
 
+    def list_done_older_than(self, threshold: datetime) -> list[Job]:
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {self._SELECT_COLUMNS} FROM jobs WHERE status IN (?, ?, ?) AND finished_at < ? ORDER BY created_at ASC",
+                (JobStatus.FINISHED, JobStatus.ERROR, JobStatus.CANCELED, threshold.isoformat()),
+            ).fetchall()
+        return [self._row_to_job(row) for row in rows]
+
     def list_done_ids(self) -> list[str]:
         with self._lock:
             rows = self._conn.execute(
