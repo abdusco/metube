@@ -426,8 +426,9 @@ input[type="file"] { display: none; }
 
 .section-toolbar {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin: var(--space-6) 0 var(--space-3);
 }
 
 /* ── Section heading ─────────────────────────────────────────────────────── */
