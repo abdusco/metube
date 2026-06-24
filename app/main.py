@@ -68,7 +68,6 @@ class Config(BaseSettings):
     BASE_DIR: str = ""
     MAX_CONCURRENT_DOWNLOADS: int = 3
     CLEAR_COMPLETED_AFTER: int = 0
-    LOGLEVEL: str = "INFO"
     YTDL_NIGHTLY_UPDATE_TIME: str = ""
 
     @field_validator("PORT")
@@ -114,7 +113,7 @@ def _load_config() -> Config:
 
 
 config = _load_config()
-logging.getLogger().setLevel(parse_log_level(str(config.LOGLEVEL)) or logging.INFO)
+logging.getLogger().setLevel(parse_log_level(os.environ.get("LOGLEVEL", "INFO")) or logging.INFO)
 
 app = Bottle()
 _cors_origins = [o.strip() for o in config.CORS_ALLOWED_ORIGINS.split(",") if o.strip()] if config.CORS_ALLOWED_ORIGINS else []
