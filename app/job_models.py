@@ -121,6 +121,10 @@ class StatusResponse(BaseModel):
     status: Literal["ok", "error"] = "ok"
     message: str | None = None
 
+    @classmethod
+    def from_error(cls, message: str) -> "StatusResponse":
+        return cls(status="error", message=message)
+
 
 class CookieStatusResponse(BaseModel):
     domains: list[str] = Field(default_factory=list)

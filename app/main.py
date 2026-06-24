@@ -198,7 +198,7 @@ def _first_validation_error(exc: PydanticValidationError) -> str:
 def _default_error_handler(err: HTTPError) -> str:
     response.status = err.status_code
     response.content_type = "application/json"
-    return json.dumps(StatusResponse(status="error", message=_error_message(err, HTTPStatus(err.status_code).phrase)).model_dump())
+    return json.dumps(StatusResponse.from_error(_error_message(err, HTTPStatus(err.status_code).phrase)).model_dump())
 
 
 app.default_error_handler = _default_error_handler
@@ -212,7 +212,7 @@ def create_job(payload: AddJobRequest) -> dict[str, Any]:
 
 
 @app.delete("/jobs/<job_id>")
-def delete_job(job_id: str) -> str:
+def delete_job(job_id: str):
     job_manager.delete_job(job_id)
     return HTTPResponse(status=204)
 
@@ -229,7 +229,7 @@ def retry_job(job_id: str) -> dict[str, Any]:
 
 
 @app.post("/jobs/clear")
-def clear_jobs() -> str:
+def clear_jobs():
     job_manager.clear()
     return HTTPResponse(status=204)
 
