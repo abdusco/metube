@@ -9,12 +9,46 @@ from typing import Callable
 
 import yt_dlp
 import yt_dlp.networking.impersonate
+from yt_dlp.compat import imghdr as _imghdr
+from yt_dlp.postprocessor.common import PostProcessor
+from yt_dlp.utils import replace_extension
 
 from dl_formats import get_format, get_opts
 from job_db import JobDB
 from job_models import Job
 
 log = logging.getLogger("job_worker")
+
+_IMGHDR_TO_EXT = {"jpeg": "jpg", "png": "png", "webp": "webp", "gif": "gif"}
+
+
+class _ThumbnailExtFixerPP(PostProcessor):
+    """Rename thumbnails whose file extension doesn't match their actual format.
+
+    yt-dlp's FFmpegThumbnailsConvertor forces '-f image2' which picks the
+    decoder from the file extension. A JPEG served as .png (common on Reddit)
+    trips the PNG decoder and causes 'Conversion failed!'. Running this PP
+    first ensures the extension is correct before conversion is attempted.
+    """
+
+    def run(self, info: dict) -> tuple[list, dict]:
+        for thumbnail in info.get("thumbnails") or []:
+            path = thumbnail.get("filepath")
+            if not path or not os.path.exists(path):
+                continue
+            _, ext = os.path.splitext(path)
+            detected = _imghdr.what(path)
+            correct_ext = _IMGHDR_TO_EXT.get(detected or "")
+            if not correct_ext or ext.lower() == f".{correct_ext}":
+                continue
+            new_path = replace_extension(path, correct_ext)
+            self.to_screen(f"Correcting thumbnail extension: {os.path.basename(path)} → .{correct_ext}")
+            os.replace(path, new_path)
+            thumbnail["filepath"] = new_path
+            files_to_move = info.get("__files_to_move") or {}
+            if path in files_to_move:
+                files_to_move[new_path] = replace_extension(files_to_move.pop(path), correct_ext)
+        return [], info
 
 
 def run_job(
@@ -124,7 +158,9 @@ def run_job(
     }
 
     def _download() -> int:
-        return yt_dlp.YoutubeDL(params=params).download([job.url])
+        ydl = yt_dlp.YoutubeDL(params=params)
+        ydl._pps["before_dl"].insert(0, _ThumbnailExtFixerPP(ydl))
+        return ydl.download([job.url])
 
     try:
         if cookies_content:
