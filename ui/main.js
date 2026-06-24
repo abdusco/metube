@@ -210,7 +210,9 @@ function app() {
 
     /** @param {string} domain */
     async deleteCookiesForDomain(domain) {
-      await fetch(`cookies/${encodeURIComponent(domain)}`, { method: "DELETE" });
+      await fetch(`cookies/${encodeURIComponent(domain)}`, {
+        method: "DELETE",
+      });
       await this._refreshCookieStatus();
     },
 
@@ -259,7 +261,10 @@ function app() {
     async _fetchLogs(id) {
       try {
         const resp = await fetch("logs?id=" + encodeURIComponent(id));
-        if (resp.ok) this.logs = { ...this.logs, [id]: await resp.json() };
+        if (resp.ok) {
+          const data = await resp.json();
+          this.logs = { ...this.logs, [id]: data.lines };
+        }
       } catch {}
     },
 

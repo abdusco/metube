@@ -25,7 +25,7 @@ from pydantic_settings.exceptions import SettingsError
 import waitress
 
 from job_manager import JobManager
-from job_models import AddJobRequest, CookieStatusResponse, CreateJobResponse, StatusResponse
+from job_models import AddJobRequest, CookieStatusResponse, CreateJobResponse, GetLogsResponse, StatusResponse
 
 log = logging.getLogger("main")
 
@@ -104,6 +104,7 @@ class Config(BaseSettings):
         if self.PUBLIC_HOST_URL and not self.PUBLIC_HOST_URL.endswith("/"):
             self.PUBLIC_HOST_URL += "/"
 
+
 def _load_config() -> Config:
     try:
         return Config()
@@ -118,6 +119,7 @@ logging.getLogger().setLevel(parse_log_level(os.environ.get("LOGLEVEL", "INFO"))
 app = Bottle()
 _cors_origins = [o.strip() for o in config.CORS_ALLOWED_ORIGINS.split(",") if o.strip()] if config.CORS_ALLOWED_ORIGINS else []
 job_manager = JobManager(config)
+
 
 def _parse_cookies_by_domain(content: str) -> dict[str, str]:
     by_domain: dict[str, list[str]] = defaultdict(list)
@@ -255,12 +257,11 @@ def jobs_state() -> dict[str, Any]:
 
 
 @app.route("/logs")
-def get_logs() -> list[str]:
+def get_logs() -> dict[str, Any]:
     job_id = request.query.get("id")
     if not job_id:
         abort(400, "missing id")
-    return job_manager.get_logs(job_id)
-
+    return GetLogsResponse(job_id=job_id, lines=job_manager.get_logs(job_id)).model_dump()
 
 
 @app.route("/cookies", method="POST")

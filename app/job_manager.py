@@ -15,6 +15,7 @@ import yt_dlp.networking.impersonate
 
 from cookies_db import CookieDB
 from job_db import JobDB
+from logs_db import LogsDB
 from job_models import EnqueueJobResult, JobCreate, JobList, JobStatus
 from job_worker import run_job
 
@@ -30,6 +31,7 @@ class JobManager:
         state_dir = Path(self.config.STATE_DIR)
         self.db = JobDB(state_dir / "jobs.sqlite3")
         self.cookies_db = CookieDB(state_dir / "jobs.sqlite3")
+        self.logs_db = LogsDB(state_dir / "jobs.sqlite3")
         self.db.reset_running_jobs_to_error()
         self._executor = ThreadPoolExecutor(max_workers=int(self.config.MAX_CONCURRENT_DOWNLOADS))
         self._active_futures: dict[str, Future] = {}
@@ -49,6 +51,7 @@ class JobManager:
         self._executor.shutdown(wait=False)
         self.db.close()
         self.cookies_db.close()
+        self.logs_db.close()
 
     def _extract_title(self, url: str) -> str:
         params = {
@@ -133,22 +136,24 @@ class JobManager:
                 self._active_futures.pop(job_id, None)
                 self._cancel_events.pop(job_id, None)
 
-    def _append_log(self, job_id: str, line: str) -> None:
-        self._logs[job_id].append(line)
-
     def _run_single_job(self, job_id: str, cancel_event: threading.Event) -> None:
         job = self.db.get_job(job_id)
-        run_job(
-            self.db,
-            job,
-            download_dir=Path(self.config.DOWNLOAD_DIR),
-            temp_dir=Path(self.config.TEMP_DIR),
-            output_template=self.config.OUTPUT_TEMPLATE,
-            ytdl_options=dict(self.config.YTDL_OPTIONS),
-            cancel_event=cancel_event,
-            log_line=lambda line: self._append_log(job_id, line),
-            cookies_content=self.cookies_db.get_merged_content() or None,
-        )
+        try:
+            run_job(
+                self.db,
+                job,
+                download_dir=Path(self.config.DOWNLOAD_DIR),
+                temp_dir=Path(self.config.TEMP_DIR),
+                output_template=self.config.OUTPUT_TEMPLATE,
+                ytdl_options=dict(self.config.YTDL_OPTIONS),
+                cancel_event=cancel_event,
+                log_line=lambda line: self._logs[job_id].append(line),
+                cookies_content=self.cookies_db.get_merged_content() or None,
+            )
+        finally:
+            lines = list(self._logs.get(job_id, []))
+            if lines:
+                self.logs_db.save(job_id, lines)
 
     def list_cookie_domains(self) -> list[str]:
         return self.cookies_db.list_domains()
@@ -218,4 +223,6 @@ class JobManager:
         return JobList(queued=self.db.list_queued(), done=self.db.list_done())
 
     def get_logs(self, job_id: str) -> list[str]:
-        return list(self._logs.get(job_id, ()))
+        if job_id in self._logs:
+            return list(self._logs[job_id])
+        return self.logs_db.get_lines(job_id)

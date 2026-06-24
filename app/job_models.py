@@ -123,3 +123,8 @@ class CookieStatusResponse(BaseModel):
 class CreateJobResponse(BaseModel):
     status: Literal["ok"] = "ok"
     id: str
+
+
+class GetLogsResponse(BaseModel):
+    job_id: str
+    lines: list[str] = Field(default_factory=list)
