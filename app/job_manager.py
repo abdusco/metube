@@ -194,8 +194,6 @@ class JobManager:
             if event is not None:
                 event.set()
             return
-        if status in (JobStatus.QUEUED, JobStatus.CANCELED):
-            return
         try:
             job = self.db.get_job(job_id)
         except KeyError:

@@ -65,9 +65,14 @@ def run_job(
                 size = Path(final_name).stat().st_size if Path(final_name).exists() else None
                 db.set_output_file(job.id, rel, size)
             requested_subtitles = info_dict.get("requested_subtitles") or {}
+            final_dir = info_dict.get("__finaldir")
             for subtitle in requested_subtitles.values():
                 if isinstance(subtitle, dict) and subtitle.get("filepath"):
                     subtitle_path = subtitle["filepath"]
+                    if final_dir and not Path(subtitle_path).exists():
+                        candidate = Path(final_dir) / Path(subtitle_path).name
+                        if candidate.exists():
+                            subtitle_path = str(candidate)
                     rel = os.path.relpath(subtitle_path, download_dir)
                     size = Path(subtitle_path).stat().st_size if Path(subtitle_path).exists() else None
                     db.add_subtitle_file(job.id, rel, size)
