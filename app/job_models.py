@@ -55,6 +55,12 @@ class Job(BaseModel):
     error: str | None = None
     subtitle_files: list[SubtitleFile] = Field(default_factory=list)
     cancel_requested_at: datetime | None = Field(default=None, exclude=True)
+
+    @property
+    def files(self) -> list[str]:
+        names = [self.filename] if self.filename else []
+        names.extend(sf.filename for sf in self.subtitle_files)
+        return names
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None = None

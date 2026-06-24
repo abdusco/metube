@@ -251,7 +251,7 @@
                   title="Retry"
                 >↺</button>
                 <button class="btn-icon" :class="{ active: openLogsId === dl.id }" @click="toggleLogs(dl.id)" title="Logs">≡</button>
-                <button class="btn-icon danger" @click="clearCompletedJobs()" title="Clear all">✕</button>
+                <button class="btn-icon danger" @click="deleteJob(dl.id)" title="Remove">✕</button>
               </div>
             </div>
 

@@ -139,6 +139,11 @@ function app() {
       await this.pollState();
     },
 
+    async deleteJob(id) {
+      await fetch(`jobs/${id}`, { method: "DELETE" });
+      await this.pollState();
+    },
+
     /** Clear all completed downloads. */
     async clearCompletedJobs() {
       await fetch("jobs/clear", { method: "POST" });

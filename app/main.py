@@ -212,8 +212,8 @@ def create_job(payload: AddJobRequest) -> dict[str, Any]:
 
 
 @app.delete("/jobs/<job_id>")
-def cancel_job(job_id: str) -> str:
-    job_manager.cancel(job_id)
+def delete_job(job_id: str) -> str:
+    job_manager.delete_job(job_id)
     return HTTPResponse(status=204)
 
 

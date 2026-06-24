@@ -186,38 +186,35 @@ class JobManager:
         self.db.create_job(new_id, job_create, job.title)
         return EnqueueJobResult(id=new_id)
 
-    def cancel(self, job_id: str) -> None:
-        result = self.db.request_cancel(job_id)
-        if result == JobStatus.RUNNING:
+    def delete_job(self, job_id: str) -> None:
+        status = self.db.request_cancel(job_id)
+        if status == JobStatus.RUNNING:
             with self._lock:
                 event = self._cancel_events.get(job_id)
             if event is not None:
                 event.set()
+            return
+        if status in (JobStatus.QUEUED, JobStatus.CANCELED):
+            return
+        try:
+            job = self.db.get_job(job_id)
+        except KeyError:
+            return
+        if self.config.DELETE_FILE_ON_TRASHCAN:
+            base = Path(self.config.DOWNLOAD_DIR)
+            for rel_name in job.files:
+                try:
+                    (base / rel_name).unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    log.warning("Could not delete file %s for %s: %s", rel_name, job_id, exc)
+        self._logs.pop(job_id, None)
+        self.db.delete_done([job_id])
 
     def clear(self) -> None:
-        ids = self.db.list_done_ids()
-        for job_id in ids:
-            try:
-                job = self.db.get_job(job_id)
-            except KeyError:
-                continue
-            if self.config.DELETE_FILE_ON_TRASHCAN:
-                base = Path(self.config.DOWNLOAD_DIR)
-                rel_names = []
-                if job.filename:
-                    rel_names.append(job.filename)
-                for extra in job.subtitle_files:
-                    if isinstance(extra, dict) and extra.get("filename"):
-                        rel_names.append(str(extra["filename"]))
-                for rel_name in rel_names:
-                    try:
-                        (base / rel_name).unlink()
-                    except FileNotFoundError:
-                        pass
-                    except OSError as exc:
-                        log.warning("Could not delete file %s for %s: %s", rel_name, job_id, exc)
-            self._logs.pop(job_id, None)
-        self.db.delete_done(ids)
+        for job_id in self.db.list_done_ids():
+            self.delete_job(job_id)
 
     def get_jobs(self) -> JobList:
         return JobList(queued=self.db.list_queued(), done=self.db.list_done())
