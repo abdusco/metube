@@ -152,19 +152,8 @@ function app() {
      * @param {Download} dl
      */
     async retryDownload(dl) {
-      await fetch("jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: dl.url,
-          download_type: dl.download_type,
-          codec: dl.codec,
-          format: dl.format,
-          quality: dl.quality,
-          subtitle_langs: dl.subtitle_langs || [],
-        }),
-      });
-      await this.clearCompletedJobs();
+      await fetch(`jobs/${dl.id}/retry`, { method: "POST" });
+      await this.pollState();
     },
 
     async _refreshCookieStatus() {

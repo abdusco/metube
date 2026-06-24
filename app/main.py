@@ -226,6 +226,17 @@ def cancel_job(job_id: str) -> str:
     return _no_content()
 
 
+@app.route("/jobs/<job_id>/retry", method="POST")
+def retry_job(job_id: str) -> dict[str, Any]:
+    try:
+        result = job_manager.retry(job_id)
+    except KeyError:
+        abort(404, f"job {job_id} not found")
+    except ValueError as exc:
+        abort(409, str(exc))
+    return CreateJobResponse(id=result.id).model_dump()
+
+
 @app.route("/jobs/clear", method="POST")
 def clear_jobs() -> str:
     job_manager.clear()

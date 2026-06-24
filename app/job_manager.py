@@ -162,6 +162,25 @@ class JobManager:
     def delete_all_cookies(self) -> None:
         self.cookies_db.delete_all()
 
+    def retry(self, job_id: str) -> EnqueueJobResult:
+        self._clear_expired()
+        job = self.db.get_job(job_id)
+        if job.status not in (JobStatus.FINISHED, JobStatus.ERROR, JobStatus.CANCELED):
+            raise ValueError(f"job {job_id} is not in a done state")
+        self.db.delete_done([job_id])
+        self._logs.pop(job_id, None)
+        new_id = str(uuid.uuid4())
+        job_create = JobCreate(
+            url=job.url,
+            download_type=job.download_type,
+            codec=job.codec,
+            format=job.format,
+            quality=job.quality,
+            subtitle_langs=job.subtitle_langs,
+        )
+        self.db.create_job(new_id, job_create, job.title)
+        return EnqueueJobResult(id=new_id)
+
     def cancel(self, job_id: str) -> None:
         result = self.db.request_cancel(job_id)
         if result == JobStatus.RUNNING:
