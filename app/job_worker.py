@@ -35,9 +35,16 @@ def run_job(
     if "impersonate" in opts:
         opts["impersonate"] = yt_dlp.networking.impersonate.ImpersonateTarget.from_str(opts["impersonate"])
 
+    part_files: set[str] = set()
+
     def progress_hook(status: dict) -> None:
         if cancel_event.is_set():
             raise RuntimeError("METUBE_JOB_CANCELED")
+        tmpfile = status.get("tmpfilename")
+        if tmpfile:
+            part_files.add(tmpfile)
+        if status.get("status") == "finished" and tmpfile:
+            part_files.discard(tmpfile)
         if status.get("status") != "downloading":
             return
         downloaded = status.get("downloaded_bytes")
@@ -125,6 +132,12 @@ def run_job(
         log.error("Job %s failed: %s", job.id, message)
         db.mark_error(job.id, message)
         return
+    finally:
+        for part_file in part_files:
+            try:
+                Path(part_file).unlink(missing_ok=True)
+            except OSError:
+                pass
 
     if cancel_event.is_set():
         db.mark_canceled(job.id)
