@@ -214,20 +214,20 @@ def _preflight_root() -> dict[str, Any]:
     return {}
 
 
-@app.route("/jobs", method="POST")
+@app.post("/jobs")
 @_require_json_object(AddJobRequest)
 def create_job(payload: AddJobRequest) -> dict[str, Any]:
     result = job_manager.enqueue(payload.to_job_create())
     return CreateJobResponse(id=result.id).model_dump()
 
 
-@app.route("/jobs/<job_id>", method="DELETE")
+@app.delete("/jobs/<job_id>")
 def cancel_job(job_id: str) -> str:
     job_manager.cancel(job_id)
     return _no_content()
 
 
-@app.route("/jobs/<job_id>/retry", method="POST")
+@app.post("/jobs/<job_id>/retry")
 def retry_job(job_id: str) -> dict[str, Any]:
     try:
         result = job_manager.retry(job_id)
@@ -238,13 +238,13 @@ def retry_job(job_id: str) -> dict[str, Any]:
     return CreateJobResponse(id=result.id).model_dump()
 
 
-@app.route("/jobs/clear", method="POST")
+@app.post("/jobs/clear")
 def clear_jobs() -> str:
     job_manager.clear()
     return _no_content()
 
 
-@app.route("/jobs")
+@app.get("/jobs")
 def jobs_state() -> dict[str, Any]:
     base = config.PUBLIC_HOST_URL
     job_list = job_manager.get_jobs()
@@ -256,7 +256,7 @@ def jobs_state() -> dict[str, Any]:
     return job_list.model_dump(mode="json")
 
 
-@app.route("/logs")
+@app.get("/logs")
 def get_logs() -> dict[str, Any]:
     job_id = request.query.get("id")
     if not job_id:
@@ -264,7 +264,7 @@ def get_logs() -> dict[str, Any]:
     return GetLogsResponse(job_id=job_id, lines=job_manager.get_logs(job_id)).model_dump()
 
 
-@app.route("/cookies", method="POST")
+@app.post("/cookies")
 def upload_cookies() -> dict[str, Any]:
     upload = request.files.get("cookies")
     if upload is None:
@@ -285,24 +285,24 @@ def upload_cookies() -> dict[str, Any]:
     return StatusResponse(message=f"Cookies saved for {len(by_domain)} domain(s)").model_dump()
 
 
-@app.route("/cookies/<domain>", method="DELETE")
+@app.delete("/cookies/<domain>")
 def delete_cookies_for_domain(domain: str) -> str:
     job_manager.delete_cookies_for_domain(unquote(domain))
     return _no_content()
 
 
-@app.route("/cookies", method="DELETE")
+@app.delete("/cookies")
 def delete_all_cookies() -> str:
     job_manager.delete_all_cookies()
     return _no_content()
 
 
-@app.route("/cookies")
+@app.get("/cookies")
 def cookie_status() -> dict[str, Any]:
     return CookieStatusResponse(domains=job_manager.list_cookie_domains()).model_dump()
 
 
-@app.route("/download/<filepath:path>")
+@app.get("/download/<filepath:path>")
 def serve_download(filepath: str):
     target = (Path(config.DOWNLOAD_DIR) / unquote(filepath)).resolve()
     if _is_within_state_dir(target):
@@ -310,12 +310,12 @@ def serve_download(filepath: str):
     return static_file(filepath, root=config.DOWNLOAD_DIR)
 
 
-@app.route("/")
+@app.get("/")
 def index():
     return static_file("index.html", root=str(Path(config.BASE_DIR) / "ui"))
 
 
-@app.route("/<filepath:path>")
+@app.get("/<filepath:path>")
 def static_ui(filepath: str):
     return static_file(filepath, root=str(Path(config.BASE_DIR) / "ui"))
 
