@@ -5,11 +5,9 @@
 MeTube is a self-hosted web UI for `yt-dlp`, for downloading media from YouTube and [dozens of other sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
 Key capabilities:
-* Download videos, audio, captions, and thumbnails from a browser UI.
+* Download videos, audio from a browser UI.
 * Download playlists and channels, with configurable output and download options.
 * Fetch subtitles alongside video/audio downloads and save them as separate files.
-
-![screenshot1](https://github.com/alexta69/metube/raw/master/screenshot.gif)
 
 ## 🐳 Run using Docker
 
@@ -25,6 +23,9 @@ services:
     image: ghcr.io/abdusco/metube
     container_name: metube
     restart: unless-stopped
+    environment:
+      - DELETE_FILE_ON_TRASHCAN=true
+      - CLEAR_COMPLETED_AFTER=172800 # 2 days
     ports:
       - "8081:8081"
     volumes:
@@ -117,48 +118,6 @@ In case you need to use your browser's cookies with MeTube, for example to downl
 * After upload, the cookie indicator should show as active.
 * Use **Delete Cookies** in the same section to remove uploaded cookies.
 
-## 🔌 Browser extensions
-
-Browser extensions allow right-clicking videos and sending them directly to MeTube. If you're on an HTTPS page, your MeTube instance must be behind an HTTPS reverse proxy (see below) for extensions to work.
-
-Since browser extensions make requests from their own origin (`chrome-extension://...` or `moz-extension://...`), you must set `CORS_ALLOWED_ORIGINS=*` for them to work.
-
-__Chrome:__ contributed by [Rpsl](https://github.com/rpsl). You can install it from [Google Chrome Webstore](https://chrome.google.com/webstore/detail/metube-downloader/fbmkmdnlhacefjljljlbhkodfmfkijdh) or use developer mode and install [from sources](https://github.com/Rpsl/metube-browser-extension).
-
-__Firefox:__ contributed by [nanocortex](https://github.com/nanocortex). You can install it from [Firefox Addons](https://addons.mozilla.org/en-US/firefox/addon/metube-downloader) or get sources from [here](https://github.com/nanocortex/metube-firefox-addon).
-
-## 📱 iOS Shortcut
-
-[rithask](https://github.com/rithask) created an iOS shortcut to send URLs to MeTube from Safari. Enter the MeTube instance address when prompted which will be saved for later use. You can run the shortcut from Safari’s share menu. The shortcut can be downloaded from [this iCloud link](https://www.icloud.com/shortcuts/66627a9f334c467baabdb2769763a1a6).
-
-## 🔖 Bookmarklet
-
-[kushfest](https://github.com/kushfest) has created a Chrome bookmarklet for sending the currently open webpage to MeTube. Please note that if you're on an HTTPS page, your MeTube instance must be behind an HTTPS reverse proxy (see [Running behind a reverse proxy](#-running-behind-a-reverse-proxy)) for the bookmarklet to work.
-
-Since bookmarklets run in the context of the current page (e.g. youtube.com), the requests they make to MeTube are cross-origin. You must add the origins of sites where you use the bookmarklet to the __CORS_ALLOWED_ORIGINS__ environment variable, otherwise the browser will block the requests. For example, to use the bookmarklet on YouTube and Vimeo: `CORS_ALLOWED_ORIGINS=https://www.youtube.com,https://www.vimeo.com`.
-
-GitHub doesn't allow embedding JavaScript as a link, so the bookmarklet has to be created manually by copying the following code to a new bookmark you create on your bookmarks bar. Change the hostname in the URL below to point to your MeTube instance.
-
-```javascript
-javascript:!function(){xhr=new XMLHttpRequest();xhr.open("POST","https://metube.domain.com/add");xhr.withCredentials=true;xhr.send(JSON.stringify({"url":document.location.href,"quality":"best"}));xhr.onload=function(){if(xhr.status==200){alert("Sent to metube!")}else{alert("Send to metube failed. Check the javascript console for clues.")}}}();
-```
-
-[shoonya75](https://github.com/shoonya75) has contributed a Firefox version:
-
-```javascript
-javascript:(function(){xhr=new XMLHttpRequest();xhr.open("POST","https://metube.domain.com/add");xhr.send(JSON.stringify({"url":document.location.href,"quality":"best"}));xhr.onload=function(){if(xhr.status==200){alert("Sent to metube!")}else{alert("Send to metube failed. Check the javascript console for clues.")}}})();
-```
-
-The above bookmarklets use `alert()` for notifications. This variant shows a toast instead (Chrome — for Firefox, replace the `!function(){...}()` wrapper with `(function(){...})()`):
-
-```javascript
-javascript:!function(){function notify(msg) {var sc = document.scrollingElement.scrollTop; var text = document.createElement('span');text.innerHTML=msg;var ts = text.style;ts.all = 'revert';ts.color = '#000';ts.fontFamily = 'Verdana, sans-serif';ts.fontSize = '15px';ts.backgroundColor = 'white';ts.padding = '15px';ts.border = '1px solid gainsboro';ts.boxShadow = '3px 3px 10px';ts.zIndex = '100';document.body.appendChild(text);ts.position = 'absolute'; ts.top = 50 + sc + 'px'; ts.left = (window.innerWidth / 2)-(text.offsetWidth / 2) + 'px'; setTimeout(function () { text.style.visibility = "hidden"; }, 1500);}xhr=new XMLHttpRequest();xhr.open("POST","https://metube.domain.com/add");xhr.send(JSON.stringify({"url":document.location.href,"quality":"best"}));xhr.onload=function() { if(xhr.status==200){notify("Sent to metube!")}else {notify("Send to metube failed. Check the javascript console for clues.")}}}();
-```
-
-## ⚡ Raycast extension
-
-[dotvhs](https://github.com/dotvhs) has created an [extension for Raycast](https://www.raycast.com/dot/metube) for adding videos to MeTube directly from Raycast.
-
 ## 🔒 Running behind a reverse proxy
 
 MeTube can run behind a reverse proxy for HTTPS termination or authentication.
@@ -172,21 +131,6 @@ location /metube/ {
         proxy_pass http://metube:8081;
         proxy_set_header Host $host;
 }
-```
-
-### 🌐 Apache
-
-Contributed by [PIE-yt](https://github.com/PIE-yt). Source [here](https://gist.github.com/PIE-yt/29e7116588379032427f5bd446b2cac4).
-
-```apache
-# For putting in your Apache sites site.conf
-# Serves MeTube under a /metube/ subdir (http://yourdomain.com/metube/)
-<Location /metube/>
-    ProxyPass http://localhost:8081/ retry=0 timeout=30
-    ProxyPassReverse http://localhost:8081/
-</Location>
-
-
 ```
 
 ### 🌐 Caddy
@@ -214,10 +158,6 @@ MeTube is only a UI for [yt-dlp](https://github.com/yt-dlp/yt-dlp). Issues with 
 docker exec -ti metube sh
 cd /downloads
 ```
-
-## 💡 Submitting feature requests
-
-MeTube development relies on community contributions. If you need additional features, please submit a PR. Create an issue first to discuss the implementation — some PRs may not be accepted to reduce bloat. Feature requests without an accompanying PR are unlikely to be fulfilled.
 
 ## 🛠️ Building and running locally
 
