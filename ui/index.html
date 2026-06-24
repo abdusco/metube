@@ -122,11 +122,11 @@
       <div class="advanced-section-header">Cookies</div>
       <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener" class="section-help-link">Get cookies.txt extension</a>
 
-      <div style="margin-bottom: 8px">
+      <div class="cookie-file-pick">
         <button class="btn btn-secondary btn-sm" @click="$refs.cookieFileInput.click()" :disabled="cookieUploading">
           Choose file
         </button>
-        <input x-ref="cookieFileInput" type="file" accept=".txt" @change="loadCookieFile($event)" style="display:none">
+        <input x-ref="cookieFileInput" type="file" accept=".txt" @change="loadCookieFile($event)">
       </div>
 
       <textarea
@@ -149,7 +149,7 @@
 
       <template x-if="cookieDomains.length > 0">
         <div>
-          <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.5; margin: 12px 0 6px">Saved domains</div>
+          <div class="cookie-domains-heading">Saved domains</div>
           <div class="cookie-domain-list">
             <template x-for="domain in cookieDomains" :key="domain">
               <div class="cookie-domain-row">
@@ -159,7 +159,7 @@
               </div>
             </template>
           </div>
-          <button class="btn btn-danger btn-sm" @click="deleteCookies()" style="margin-top: 8px">Delete all</button>
+          <button class="btn btn-danger btn-sm" @click="deleteCookies()">Delete all</button>
         </div>
       </template>
       <template x-if="cookieDomains.length === 0">
@@ -201,7 +201,7 @@
               <span x-show="dl.speed"   x-text="formatSpeed(dl.speed)"></span>
               <span x-show="dl.eta"     x-text="`ETA ${formatEta(dl.eta)}`"></span>
               <span x-show="dl.status !== 'running'" x-text="dl.status"></span>
-              <span x-text="badge(dl)" style="margin-left:auto; opacity:.7"></span>
+              <span x-text="badge(dl)" class="dl-meta-badge"></span>
             </div>
 
             <div x-show="openLogsId === dl.id" class="log-panel">
@@ -217,7 +217,7 @@
   <template x-if="done.length > 0">
     <div>
       <div class="section-heading">Completed</div>
-      <div style="margin:0 0 10px 0; display:flex; justify-content:flex-end">
+      <div class="section-toolbar">
         <button class="btn btn-danger btn-sm" @click="clearCompletedJobs()">Clear all</button>
       </div>
       <div class="dl-list">
@@ -228,7 +228,6 @@
                 <span
                   :class="dl.status === 'finished' ? 'badge badge-finished' : 'badge badge-error'"
                   x-text="dl.status === 'finished' ? '✓' : '✕'"
-                  style="margin-right:6px"
                 ></span>
                 <a
                   :href="dl.status === 'finished' ? dl.download_url : dl.url"
@@ -271,9 +270,9 @@
 
             <!-- Subtitle files -->
             <template x-if="dl.subtitle_files && dl.subtitle_files.length">
-              <div style="margin-top:8px; padding-left:12px; border-left:2px solid var(--border)">
+              <div class="subtitle-list">
                 <template x-for="(sf, i) in dl.subtitle_files" :key="i">
-                  <div class="dl-meta" style="margin-top:4px">
+                  <div class="dl-meta">
                     <a :href="sf.download_url" x-text="sf.filename" :download="sf.filename"></a>
                     <span x-text="formatBytes(sf.size)"></span>
                   </div>
