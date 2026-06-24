@@ -116,8 +116,32 @@ def _load_config() -> Config:
 config = _load_config()
 logging.getLogger().setLevel(parse_log_level(os.environ.get("LOGLEVEL", "INFO")) or logging.INFO)
 
+class CORSPlugin:
+    name = "cors"
+    api = 2
+
+    def __init__(self, origins: list[str]) -> None:
+        self._origins = origins
+
+    def setup(self, app) -> None:
+        app.route("/<path:re:.*>", method="OPTIONS", callback=lambda path="": {})
+
+    def apply(self, callback, route):
+        @wraps(callback)
+        def _wrapped(*args, **kwargs):
+            result = callback(*args, **kwargs)
+            origin = request.headers.get("Origin", "")
+            if origin and ("*" in self._origins or origin in self._origins):
+                response.set_header("Access-Control-Allow-Origin", origin)
+                response.set_header("Access-Control-Allow-Headers", "Content-Type")
+                response.set_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            return result
+        return _wrapped
+
+
 app = Bottle()
-_cors_origins = [o.strip() for o in config.CORS_ALLOWED_ORIGINS.split(",") if o.strip()] if config.CORS_ALLOWED_ORIGINS else []
+if _cors_origins := [o.strip() for o in config.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]:
+    app.install(CORSPlugin(_cors_origins))
 job_manager = JobManager(config)
 
 
@@ -185,15 +209,6 @@ def _is_within_state_dir(target: str | Path) -> bool:
     return Path(target).is_relative_to(Path(config.STATE_DIR).resolve())
 
 
-@app.hook("after_request")
-def _add_cors_headers() -> None:
-    origin = request.headers.get("Origin", "")
-    if origin and _cors_origins and ("*" in _cors_origins or origin in _cors_origins):
-        response.set_header("Access-Control-Allow-Origin", origin)
-        response.set_header("Access-Control-Allow-Headers", "Content-Type")
-        response.set_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-
-
 def _default_error_handler(err: Any) -> dict[str, Any]:
     code = int(getattr(err, "status_code", 500) or 500)
     fallback = HTTPStatus(code).phrase if code in HTTPStatus._value2member_map_ else "Internal Server Error"
@@ -202,16 +217,6 @@ def _default_error_handler(err: Any) -> dict[str, Any]:
 
 app.default_error_handler = _default_error_handler
 
-
-@app.route("<path:path>", method="OPTIONS")
-def _preflight(path: str) -> dict[str, Any]:
-    del path
-    return {}
-
-
-@app.route("/", method="OPTIONS")
-def _preflight_root() -> dict[str, Any]:
-    return {}
 
 
 @app.post("/jobs")
