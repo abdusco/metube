@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 import threading
 import time
 import typing
@@ -74,7 +75,15 @@ class JobManager:
         imp = params.get("impersonate")
         if imp is not None:
             params["impersonate"] = yt_dlp.networking.impersonate.ImpersonateTarget.from_str(imp)
-        info = yt_dlp.YoutubeDL(params=params).extract_info(url, download=False)
+        cookies_content = self.cookies_db.get_merged_content() or None
+        if cookies_content:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", encoding="utf-8") as f:
+                f.write(cookies_content)
+                f.flush()
+                params["cookiefile"] = f.name
+                info = yt_dlp.YoutubeDL(params=params).extract_info(url, download=False)
+        else:
+            info = yt_dlp.YoutubeDL(params=params).extract_info(url, download=False)
         if isinstance(info, dict):
             return str(info.get("title") or info.get("id") or url)
         return url
