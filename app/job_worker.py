@@ -35,16 +35,22 @@ def run_job(
     if "impersonate" in opts:
         opts["impersonate"] = yt_dlp.networking.impersonate.ImpersonateTarget.from_str(opts["impersonate"])
 
-    part_files: set[str] = set()
+    temp_files: set[str] = set()
 
     def progress_hook(status: dict) -> None:
         if cancel_event.is_set():
             raise RuntimeError("METUBE_JOB_CANCELED")
         tmpfile = status.get("tmpfilename")
-        if tmpfile:
-            part_files.add(tmpfile)
+        if tmpfile and tmpfile not in temp_files:
+            temp_files.add(tmpfile)
+            db.add_temp_file(job.id, tmpfile)
         if status.get("status") == "finished" and tmpfile:
-            part_files.discard(tmpfile)
+            temp_files.discard(tmpfile)
+            db.remove_temp_file(job.id, tmpfile)
+            filename = status.get("filename")
+            if filename and filename not in temp_files:
+                temp_files.add(filename)
+                db.add_temp_file(job.id, filename)
         if status.get("status") != "downloading":
             return
         downloaded = status.get("downloaded_bytes")
@@ -61,7 +67,15 @@ def run_job(
         )
 
     def postprocessor_hook(data: dict) -> None:
+        if data.get("postprocessor") == "FFmpegThumbnailsConvertor" and data.get("status") == "finished":
+            thumbnail = (data.get("info_dict") or {}).get("thumbnail")
+            if thumbnail and thumbnail not in temp_files:
+                temp_files.add(thumbnail)
+                db.add_temp_file(job.id, thumbnail)
+
         if data.get("postprocessor") == "MoveFiles" and data.get("status") == "finished":
+            temp_files.clear()
+            db.clear_temp_files(job.id)
             info_dict = data.get("info_dict") or {}
             filepath = info_dict.get("filepath")
             if filepath:
@@ -133,12 +147,13 @@ def run_job(
         db.mark_error(job.id, message)
         return
     finally:
-        for part_file in part_files:
+        for f in temp_files:
             try:
-                Path(part_file).unlink(missing_ok=True)
-                log.debug("Deleted leftover part file: %s", part_file)
+                Path(f).unlink(missing_ok=True)
+                log.debug("Deleted leftover temp file: %s", f)
             except OSError as exc:
-                log.warning("Could not delete part file %s: %s", part_file, exc)
+                log.warning("Could not delete temp file %s: %s", f, exc)
+        db.clear_temp_files(job.id)
 
     if cancel_event.is_set():
         db.mark_canceled(job.id)

@@ -63,6 +63,12 @@ class JobDB:
                 )
                 self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)")
                 self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_updated ON jobs(updated_at)")
+                try:
+                    self._conn.execute(
+                        "ALTER TABLE jobs ADD COLUMN temp_files_json JSONB NOT NULL DEFAULT (jsonb('[]'))"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # column already exists
 
     _SELECT_COLUMNS = """
         id,
@@ -82,6 +88,7 @@ class JobDB:
         size,
         error,
         json(subtitle_files_json) AS subtitle_files_json,
+        json(temp_files_json) AS temp_files_json,
         cancel_requested_at,
         created_at,
         updated_at,
@@ -98,6 +105,7 @@ class JobDB:
         data = dict(row)
         data["subtitle_langs"] = json.loads(data.pop("subtitle_langs_json") or "[]")
         data["subtitle_files"] = json.loads(data.pop("subtitle_files_json") or "[]")
+        data["temp_files"] = json.loads(data.pop("temp_files_json") or "[]")
         return Job.model_validate(data)
 
     def create_job(self, job_id: str, spec: JobCreate, title: str) -> Job:
@@ -305,6 +313,47 @@ class JobDB:
                 (JobStatus.FINISHED, JobStatus.ERROR, JobStatus.CANCELED),
             ).fetchall()
         return [str(row["id"]) for row in rows]
+
+    def list_running(self) -> list[Job]:
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {self._SELECT_COLUMNS} FROM jobs WHERE status = ?",
+                (JobStatus.RUNNING,),
+            ).fetchall()
+        return [self._row_to_job(row) for row in rows]
+
+    def add_temp_file(self, job_id: str, path: str) -> None:
+        job = self.get_job(job_id)
+        files = list(job.temp_files)
+        if path not in files:
+            files.append(path)
+        now = _now().isoformat()
+        with self._lock:
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE jobs SET temp_files_json = jsonb(?), updated_at = ? WHERE id = ?",
+                    (self._encode_jsonb(files), now, job_id),
+                )
+
+    def remove_temp_file(self, job_id: str, path: str) -> None:
+        job = self.get_job(job_id)
+        files = [f for f in job.temp_files if f != path]
+        now = _now().isoformat()
+        with self._lock:
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE jobs SET temp_files_json = jsonb(?), updated_at = ? WHERE id = ?",
+                    (self._encode_jsonb(files), now, job_id),
+                )
+
+    def clear_temp_files(self, job_id: str) -> None:
+        now = _now().isoformat()
+        with self._lock:
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE jobs SET temp_files_json = jsonb(?), updated_at = ? WHERE id = ?",
+                    (self._encode_jsonb([]), now, job_id),
+                )
 
     def reset_running_jobs_to_error(self) -> None:
         now = _now().isoformat()

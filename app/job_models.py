@@ -55,6 +55,7 @@ class Job(BaseModel):
     error: str | None = None
     subtitle_files: list[SubtitleFile] = Field(default_factory=list)
     cancel_requested_at: datetime | None = Field(default=None, exclude=True)
+    temp_files: list[str] = Field(default_factory=list, exclude=True)
 
     @property
     def files(self) -> list[str]:

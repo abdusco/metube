@@ -32,6 +32,13 @@ class JobManager:
         self.db = JobDB(state_dir / "jobs.sqlite3")
         self.cookies_db = CookieDB(state_dir / "jobs.sqlite3")
         self.logs_db = LogsDB(state_dir / "jobs.sqlite3")
+        for job in self.db.list_running():
+            for tf in job.temp_files:
+                try:
+                    Path(tf).unlink(missing_ok=True)
+                    log.debug("Cleaned up temp file on restart: %s", tf)
+                except OSError as exc:
+                    log.warning("Could not clean up temp file %s: %s", tf, exc)
         self.db.reset_running_jobs_to_error()
         self._executor = ThreadPoolExecutor(max_workers=int(self.config.MAX_CONCURRENT_DOWNLOADS))
         self._active_futures: dict[str, Future] = {}
