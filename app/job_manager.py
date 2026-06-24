@@ -12,6 +12,7 @@ from pathlib import Path
 import yt_dlp
 import yt_dlp.networking.impersonate
 
+from cookies_db import CookieDB
 from job_db import JobDB
 from job_models import EnqueueJobResult, JobCreate, JobList, JobStatus
 from job_worker import run_job
@@ -27,6 +28,7 @@ class JobManager:
         self.config = config
         state_dir = Path(self.config.STATE_DIR)
         self.db = JobDB(state_dir / "jobs.sqlite3")
+        self.cookies_db = CookieDB(state_dir / "jobs.sqlite3")
         self.db.reset_running_jobs_to_error()
         self._executor = ThreadPoolExecutor(max_workers=int(self.config.MAX_CONCURRENT_DOWNLOADS))
         self._active_futures: dict[str, Future] = {}
@@ -45,6 +47,7 @@ class JobManager:
                 event.set()
         self._executor.shutdown(wait=False)
         self.db.close()
+        self.cookies_db.close()
 
     def _extract_title(self, url: str) -> str:
         params = {
@@ -118,7 +121,20 @@ class JobManager:
             ytdl_options=dict(self.config.YTDL_OPTIONS),
             cancel_event=cancel_event,
             log_line=lambda line: self._append_log(job_id, line),
+            cookies_content=self.cookies_db.get_merged_content() or None,
         )
+
+    def list_cookie_domains(self) -> list[str]:
+        return self.cookies_db.list_domains()
+
+    def upsert_cookies_for_domain(self, domain: str, content: str) -> None:
+        self.cookies_db.upsert(domain, content)
+
+    def delete_cookies_for_domain(self, domain: str) -> None:
+        self.cookies_db.delete_domain(domain)
+
+    def delete_all_cookies(self) -> None:
+        self.cookies_db.delete_all()
 
     def cancel(self, job_id: str) -> None:
         result = self.db.request_cancel(job_id)

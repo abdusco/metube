@@ -117,7 +117,7 @@ class StatusResponse(BaseModel):
 
 
 class CookieStatusResponse(BaseModel):
-    has_cookies: bool
+    domains: list[str] = Field(default_factory=list)
 
 
 class CreateJobResponse(BaseModel):

@@ -33,3 +33,4 @@ cookies.txt
 
 __pycache__
 .venv
+*.sqlite3*

@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import json
+from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import wraps
 from http import HTTPStatus
@@ -111,7 +112,17 @@ app = Bottle()
 _cors_origins = [o.strip() for o in config.CORS_ALLOWED_ORIGINS.split(",") if o.strip()] if config.CORS_ALLOWED_ORIGINS else []
 job_manager = JobManager(config)
 
-COOKIES_PATH = Path(config.STATE_DIR) / "cookies.txt"
+def _parse_cookies_by_domain(content: str) -> dict[str, str]:
+    by_domain: dict[str, list[str]] = defaultdict(list)
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split("\t")
+        if len(parts) >= 7:
+            domain = parts[0].lstrip(".")
+            by_domain[domain].append(line)
+    return {d: "\n".join(lines) for d, lines in by_domain.items()}
 
 
 def _error_message(err: Any, fallback: str) -> str:
@@ -241,31 +252,35 @@ def upload_cookies() -> dict[str, Any]:
         abort(400, "No cookies file provided")
 
     content = upload.file.read()
-    max_size = 1_000_000
-    if len(content) > max_size:
+    if len(content) > 1_000_000:
         abort(400, "Cookie file too large (max 1MB)")
 
-    tmp_cookie_path = COOKIES_PATH.with_name(COOKIES_PATH.name + ".tmp")
-    tmp_cookie_path.write_bytes(content)
-    try:
-        tmp_cookie_path.chmod(0o600)
-    except OSError as exc:
-        log.warning("Could not restrict permissions on cookies file: %s", exc)
-    tmp_cookie_path.replace(COOKIES_PATH)
-    return StatusResponse(message=f"Cookies uploaded ({len(content)} bytes)").model_dump()
+    text = content.decode("utf-8", errors="replace")
+    by_domain = _parse_cookies_by_domain(text)
+    if not by_domain:
+        abort(400, "No valid cookie entries found")
+
+    for domain, domain_content in by_domain.items():
+        job_manager.upsert_cookies_for_domain(domain, domain_content)
+
+    return StatusResponse(message=f"Cookies saved for {len(by_domain)} domain(s)").model_dump()
+
+
+@app.route("/cookies/<domain>", method="DELETE")
+def delete_cookies_for_domain(domain: str) -> str:
+    job_manager.delete_cookies_for_domain(unquote(domain))
+    return _no_content()
 
 
 @app.route("/cookies", method="DELETE")
-def delete_cookies() -> dict[str, Any]:
-    if not COOKIES_PATH.exists():
-        abort(400, "No uploaded cookies to delete")
-    COOKIES_PATH.unlink()
-    return StatusResponse().model_dump()
+def delete_all_cookies() -> str:
+    job_manager.delete_all_cookies()
+    return _no_content()
 
 
 @app.route("/cookies")
 def cookie_status() -> dict[str, Any]:
-    return CookieStatusResponse(has_cookies=COOKIES_PATH.exists()).model_dump()
+    return CookieStatusResponse(domains=job_manager.list_cookie_domains()).model_dump()
 
 
 @app.route("/download/<filepath:path>")

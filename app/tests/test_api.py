@@ -100,7 +100,8 @@ def test_jobs_returns_object_shape(client):
 def test_cookie_status(client):
     resp = client.get("/cookies")
     assert resp.status_int == 200
-    assert "has_cookies" in resp.json
+    assert "domains" in resp.json
+    assert isinstance(resp.json["domains"], list)
 
 
 def test_upload_cookies_missing_field(client):

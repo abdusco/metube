@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 from pathlib import Path
 from threading import Event
 from typing import Callable
@@ -26,6 +27,7 @@ def run_job(
     ytdl_options: dict,
     cancel_event: Event,
     log_line: Callable[[str], None],
+    cookies_content: str | None = None,
 ) -> None:
     opts = get_opts(job.download_type, job.format, job.quality, ytdl_options, subtitle_langs=job.subtitle_langs)
     fmt = get_format(job.download_type, job.codec, job.format, job.quality)
@@ -98,8 +100,18 @@ def run_job(
         "logger": YtdlLogger(),
     }
 
+    def _download() -> int:
+        return yt_dlp.YoutubeDL(params=params).download([job.url])
+
     try:
-        result = yt_dlp.YoutubeDL(params=params).download([job.url])
+        if cookies_content:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", encoding="utf-8") as f:
+                f.write(cookies_content)
+                f.flush()
+                params["cookiefile"] = f.name
+                result = _download()
+        else:
+            result = _download()
     except Exception as exc:
         if cancel_event.is_set():
             db.mark_canceled(job.id)

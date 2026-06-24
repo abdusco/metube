@@ -47,7 +47,8 @@ function app() {
     /** @type {string|null} */
     error: null,
 
-    hasCookies: false,
+    /** @type {string[]} */
+    cookieDomains: [],
     cookieUploading: false,
     cookieText: "",
     cookieTab: /** @type {'file'|'paste'} */ ("file"),
@@ -171,7 +172,7 @@ function app() {
         const resp = await fetch("cookies");
         if (resp.ok) {
           const data = await resp.json();
-          this.hasCookies = !!data.has_cookies;
+          this.cookieDomains = data.domains || [];
         }
       } catch {
         /* ignore */
@@ -215,6 +216,12 @@ function app() {
 
     async deleteCookies() {
       await fetch("cookies", { method: "DELETE" });
+      await this._refreshCookieStatus();
+    },
+
+    /** @param {string} domain */
+    async deleteCookiesForDomain(domain) {
+      await fetch(`cookies/${encodeURIComponent(domain)}`, { method: "DELETE" });
       await this._refreshCookieStatus();
     },
 

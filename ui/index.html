@@ -108,8 +108,8 @@
     <details class="advanced">
       <summary>Advanced</summary>
 
+      <label class="advanced-section-header" for="subtitle-langs">Subtitle languages</label>
       <div>
-        <label for="subtitle-langs">Subtitle languages</label>
         <input
           id="subtitle-langs"
           type="text"
@@ -118,6 +118,9 @@
           spellcheck="false"
         >
       </div>
+
+      <div class="advanced-section-header">Cookies</div>
+      <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener" class="section-help-link">Get cookies.txt extension</a>
 
       <div class="cookie-tabs">
         <button class="tab-btn" :class="{ active: cookieTab === 'file' }" @click="cookieTab = 'file'">Upload file</button>
@@ -155,18 +158,31 @@
         </button>
 
         <button
-          x-show="hasCookies"
+          x-show="cookieDomains.length > 0"
           class="btn btn-danger btn-sm"
           @click="deleteCookies()"
         >
-          Delete cookies
+          Delete all
         </button>
-
-        <div class="cookie-status" :class="{ active: hasCookies }">
-          <div class="dot"></div>
-          <span x-text="hasCookies ? 'Cookies active' : 'No cookies'"></span>
-        </div>
       </div>
+
+      <template x-if="cookieDomains.length > 0">
+        <div class="cookie-domain-list">
+          <template x-for="domain in cookieDomains" :key="domain">
+            <div class="cookie-domain-row">
+              <div class="dot active"></div>
+              <span x-text="domain"></span>
+              <button class="btn-icon danger" @click="deleteCookiesForDomain(domain)" title="Delete">✕</button>
+            </div>
+          </template>
+        </div>
+      </template>
+      <template x-if="cookieDomains.length === 0">
+        <div class="cookie-status">
+          <div class="dot"></div>
+          <span>No cookies</span>
+        </div>
+      </template>
     </details>
   </div>
 
