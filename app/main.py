@@ -57,7 +57,7 @@ class Config(BaseSettings):
 
     DOWNLOAD_DIR: str = "."
     TEMP_DIR: str = ""
-    DELETE_FILE_ON_TRASHCAN: bool = False
+    DELETE_FILE_ON_TRASHCAN: bool = True
     STATE_DIR: str = "."
     PUBLIC_HOST_URL: str = "download/"
     OUTPUT_TEMPLATE: str = "%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s"

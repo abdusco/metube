@@ -16,7 +16,7 @@ class _Config:
         self.CLEAR_COMPLETED_AFTER = 0
         self.YTDL_OPTIONS = {}
         self.OUTPUT_TEMPLATE = "%(title)s.%(ext)s"
-        self.DELETE_FILE_ON_TRASHCAN = False
+        self.DELETE_FILE_ON_TRASHCAN = True
 
 
 def test_get_queue_shape(tmp_path: Path):
