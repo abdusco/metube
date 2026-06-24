@@ -4,6 +4,7 @@ import json
 import sqlite3
 import threading
 from datetime import UTC, datetime
+from typing import Any
 from pathlib import Path
 
 from job_models import Job, JobCreate, JobStatus, SubtitleFile
@@ -97,7 +98,7 @@ class JobDB:
     """
 
     @staticmethod
-    def _encode_jsonb(value: list[object] | dict[str, object]) -> str:
+    def _encode_jsonb(value: Any) -> str:
         return json.dumps(value)
 
     @classmethod

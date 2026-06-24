@@ -40,17 +40,20 @@ def run_job(
     def progress_hook(status: dict) -> None:
         if cancel_event.is_set():
             raise RuntimeError("METUBE_JOB_CANCELED")
-        tmpfile = status.get("tmpfilename")
-        if tmpfile and tmpfile not in temp_files:
-            temp_files.add(tmpfile)
-            db.add_temp_file(job.id, tmpfile)
-        if status.get("status") == "finished" and tmpfile:
-            temp_files.discard(tmpfile)
-            db.remove_temp_file(job.id, tmpfile)
-            filename = status.get("filename")
-            if filename and filename not in temp_files:
-                temp_files.add(filename)
-                db.add_temp_file(job.id, filename)
+        for f in filter(None, (status.get("tmpfilename"), status.get("filename"))):
+            if f not in temp_files:
+                temp_files.add(f)
+                db.add_temp_file(job.id, f)
+        for t in ((status.get("info_dict") or {}).get("thumbnails") or []):
+            fp = t.get("filepath")
+            if fp and fp not in temp_files:
+                temp_files.add(fp)
+                db.add_temp_file(job.id, fp)
+        if status.get("status") == "finished":
+            tmpfile = status.get("tmpfilename")
+            if tmpfile:
+                temp_files.discard(tmpfile)
+                db.remove_temp_file(job.id, tmpfile)
         if status.get("status") != "downloading":
             return
         downloaded = status.get("downloaded_bytes")
@@ -67,12 +70,6 @@ def run_job(
         )
 
     def postprocessor_hook(data: dict) -> None:
-        if data.get("postprocessor") == "FFmpegThumbnailsConvertor" and data.get("status") == "finished":
-            thumbnail = (data.get("info_dict") or {}).get("thumbnail")
-            if thumbnail and thumbnail not in temp_files:
-                temp_files.add(thumbnail)
-                db.add_temp_file(job.id, thumbnail)
-
         if data.get("postprocessor") == "MoveFiles" and data.get("status") == "finished":
             temp_files.clear()
             db.clear_temp_files(job.id)
