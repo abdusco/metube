@@ -1,4 +1,4 @@
-"""Tests for ``Config`` (env parsing, yt-dlp options, frontend_safe)."""
+"""Tests for ``Config`` (env parsing, yt-dlp options)."""
 
 from __future__ import annotations
 
@@ -66,14 +66,6 @@ class ConfigTests(unittest.TestCase):
         ):
             c = Config()
         self.assertEqual(c.YTDL_OPTIONS["quiet"], True)
-
-    def test_frontend_safe_excludes_secrets(self):
-        with patch.dict(os.environ, _base_env(), clear=False):
-            c = Config()
-        safe = c.frontend_safe()
-        self.assertNotIn("YTDL_OPTIONS", safe)
-        self.assertNotIn("HOST", safe)
-        self.assertEqual(safe, {"PUBLIC_HOST_URL": "download/"})
 
     def test_ytdl_nightly_update_time_empty_default(self):
         with patch.dict(os.environ, _base_env(YTDL_NIGHTLY_UPDATE_TIME=""), clear=False):

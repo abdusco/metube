@@ -15,7 +15,7 @@ from functools import wraps
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 from bottle import Bottle, abort, request, response, static_file
 from pydantic import ValidationError as PydanticValidationError, field_validator
@@ -95,10 +95,6 @@ class Config(BaseSettings):
             self.TEMP_DIR = self.DOWNLOAD_DIR
         if self.PUBLIC_HOST_URL and not self.PUBLIC_HOST_URL.endswith("/"):
             self.PUBLIC_HOST_URL += "/"
-
-    def frontend_safe(self) -> dict[str, Any]:
-        return {"PUBLIC_HOST_URL": self.PUBLIC_HOST_URL}
-
 
 def _load_config() -> Config:
     try:
@@ -219,7 +215,14 @@ def clear_jobs() -> str:
 
 @app.route("/jobs")
 def jobs_state() -> dict[str, Any]:
-    return job_manager.get_jobs().model_dump(mode="json")
+    base = config.PUBLIC_HOST_URL
+    job_list = job_manager.get_jobs()
+    for job in job_list.queued + job_list.done:
+        if job.filename:
+            job.download_url = base + quote(job.filename)
+            for sf in job.subtitle_files:
+                sf.download_url = base + quote(sf.filename)
+    return job_list.model_dump(mode="json")
 
 
 @app.route("/logs")
@@ -229,10 +232,6 @@ def get_logs() -> list[str]:
         abort(400, "missing id")
     return job_manager.get_logs(job_id)
 
-
-@app.route("/configuration")
-def configuration() -> dict[str, Any]:
-    return config.frontend_safe()
 
 
 @app.route("/cookies", method="POST")

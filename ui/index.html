@@ -230,7 +230,7 @@
                   style="margin-right:6px"
                 ></span>
                 <a
-                  :href="dl.status === 'finished' ? downloadUrl(dl) : dl.url"
+                  :href="dl.status === 'finished' ? dl.download_url : dl.url"
                   :target="dl.status === 'finished' ? '_blank' : '_blank'"
                   rel="noopener"
                   x-text="dl.title || dl.url"
@@ -239,7 +239,7 @@
               <div class="dl-actions">
                 <a
                   x-show="dl.status === 'finished' && dl.filename"
-                  :href="downloadUrl(dl)"
+                  :href="dl.download_url"
                   class="btn-icon"
                   :download="dl.filename"
                   title="Download file"
@@ -273,7 +273,7 @@
               <div style="margin-top:8px; padding-left:12px; border-left:2px solid var(--border)">
                 <template x-for="(sf, i) in dl.subtitle_files" :key="i">
                   <div class="dl-meta" style="margin-top:4px">
-                    <a :href="downloadUrl({...dl, filename: sf.filename})" x-text="sf.filename" :download="sf.filename"></a>
+                    <a :href="sf.download_url" x-text="sf.filename" :download="sf.filename"></a>
                     <span x-text="formatBytes(sf.size)"></span>
                   </div>
                 </template>

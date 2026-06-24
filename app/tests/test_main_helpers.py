@@ -20,15 +20,6 @@ class ParseLogLevelTests(unittest.TestCase):
         self.assertIsNone(main.parse_log_level(123))
 
 
-class FrontendSafeTests(unittest.TestCase):
-    def test_only_expected_keys(self):
-        safe = main.config.frontend_safe()
-        self.assertIn("PUBLIC_HOST_URL", safe)
-        self.assertNotIn("YTDL_OPTIONS", safe)
-        self.assertNotIn("DOWNLOAD_DIR", safe)
-        self.assertEqual(set(safe), {"PUBLIC_HOST_URL"})
-
-
 class AddRequestTests(unittest.TestCase):
     _base: dict = {
         "url": "https://example.com/v",

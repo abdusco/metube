@@ -6,7 +6,7 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
-from job_models import Job, JobCreate, JobStatus
+from job_models import Job, JobCreate, JobStatus, SubtitleFile
 
 
 def _now() -> datetime:
@@ -204,14 +204,14 @@ class JobDB:
     def add_subtitle_file(self, job_id: str, filename: str, size: int | None) -> None:
         job = self.get_job(job_id)
         subtitle_files = list(job.subtitle_files)
-        if not any(item.get("filename") == filename for item in subtitle_files):
-            subtitle_files.append({"filename": filename, "size": size})
+        if not any(sf.filename == filename for sf in subtitle_files):
+            subtitle_files.append(SubtitleFile(filename=filename, size=size))
         now = _now().isoformat()
         with self._lock:
             with self._conn:
                 self._conn.execute(
                     "UPDATE jobs SET subtitle_files_json = jsonb(?), updated_at = ? WHERE id = ?",
-                    (self._encode_jsonb(subtitle_files), now, job_id),
+                    (self._encode_jsonb([sf.model_dump(exclude={"download_url"}) for sf in subtitle_files]), now, job_id),
                 )
 
     def mark_finished(self, job_id: str) -> None:

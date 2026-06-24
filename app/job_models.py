@@ -29,6 +29,12 @@ class JobCreate(BaseModel):
     subtitle_langs: list[str] = Field(default_factory=list)
 
 
+class SubtitleFile(BaseModel):
+    filename: str
+    size: int | None = None
+    download_url: str | None = None
+
+
 class Job(BaseModel):
     id: str
     url: str
@@ -44,9 +50,10 @@ class Job(BaseModel):
     speed: float | None = None
     eta: float | None = None
     filename: str | None = None
+    download_url: str | None = None
     size: int | None = None
     error: str | None = None
-    subtitle_files: list[dict[str, str | int | None]] = Field(default_factory=list)
+    subtitle_files: list[SubtitleFile] = Field(default_factory=list)
     cancel_requested_at: datetime | None = Field(default=None, exclude=True)
     created_at: datetime
     updated_at: datetime
