@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote
 
-from bottle import Bottle, abort, request, response, static_file
+from bottle import Bottle, HTTPError, HTTPResponse, abort, request, response, static_file
 from pydantic import ValidationError as PydanticValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.exceptions import SettingsError
@@ -116,6 +116,7 @@ def _load_config() -> Config:
 config = _load_config()
 logging.getLogger().setLevel(parse_log_level(os.environ.get("LOGLEVEL", "INFO")) or logging.INFO)
 
+
 class CORSPlugin:
     name = "cors"
     api = 2
@@ -136,6 +137,7 @@ class CORSPlugin:
                 response.set_header("Access-Control-Allow-Headers", "Content-Type")
                 response.set_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
             return result
+
         return _wrapped
 
 
@@ -163,18 +165,6 @@ def _error_message(err: Any, fallback: str) -> str:
     if isinstance(body, str) and body and not body.lstrip().startswith("<"):
         return body
     return fallback
-
-
-def _json_error(message: str, status: int) -> dict[str, Any]:
-    response.status = status
-    response.content_type = "application/json"
-    return json.dumps(StatusResponse(status="error", message=message).model_dump())
-
-
-def _no_content() -> str:
-    response.status = HTTPStatus.NO_CONTENT
-    response.content_type = "application/json"
-    return ""
 
 
 def _require_json_object(model: Any | None = None):
@@ -205,18 +195,13 @@ def _first_validation_error(exc: PydanticValidationError) -> str:
     return errors[0]["msg"] if errors else "invalid request"
 
 
-def _is_within_state_dir(target: str | Path) -> bool:
-    return Path(target).is_relative_to(Path(config.STATE_DIR).resolve())
-
-
-def _default_error_handler(err: Any) -> dict[str, Any]:
-    code = int(getattr(err, "status_code", 500) or 500)
-    fallback = HTTPStatus(code).phrase if code in HTTPStatus._value2member_map_ else "Internal Server Error"
-    return _json_error(_error_message(err, fallback), status=code)
+def _default_error_handler(err: HTTPError) -> str:
+    response.status = err.status_code
+    response.content_type = "application/json"
+    return json.dumps(StatusResponse(status="error", message=_error_message(err, HTTPStatus(err.status_code).phrase)).model_dump())
 
 
 app.default_error_handler = _default_error_handler
-
 
 
 @app.post("/jobs")
@@ -229,7 +214,7 @@ def create_job(payload: AddJobRequest) -> dict[str, Any]:
 @app.delete("/jobs/<job_id>")
 def cancel_job(job_id: str) -> str:
     job_manager.cancel(job_id)
-    return _no_content()
+    return HTTPResponse(status=204)
 
 
 @app.post("/jobs/<job_id>/retry")
@@ -246,7 +231,7 @@ def retry_job(job_id: str) -> dict[str, Any]:
 @app.post("/jobs/clear")
 def clear_jobs() -> str:
     job_manager.clear()
-    return _no_content()
+    return HTTPResponse(status=204)
 
 
 @app.get("/jobs")
@@ -291,15 +276,15 @@ def upload_cookies() -> dict[str, Any]:
 
 
 @app.delete("/cookies/<domain>")
-def delete_cookies_for_domain(domain: str) -> str:
+def delete_cookies_for_domain(domain: str):
     job_manager.delete_cookies_for_domain(unquote(domain))
-    return _no_content()
+    return HTTPResponse(status=204)
 
 
 @app.delete("/cookies")
-def delete_all_cookies() -> str:
+def delete_all_cookies():
     job_manager.delete_all_cookies()
-    return _no_content()
+    return HTTPResponse(status=204)
 
 
 @app.get("/cookies")
@@ -310,7 +295,7 @@ def cookie_status() -> dict[str, Any]:
 @app.get("/download/<filepath:path>")
 def serve_download(filepath: str):
     target = (Path(config.DOWNLOAD_DIR) / unquote(filepath)).resolve()
-    if _is_within_state_dir(target):
+    if target.is_relative_to(Path(config.STATE_DIR).resolve()):
         abort(404)
     return static_file(filepath, root=config.DOWNLOAD_DIR)
 

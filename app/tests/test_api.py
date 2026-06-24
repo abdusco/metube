@@ -18,7 +18,7 @@ def client(monkeypatch):
     manager = MagicMock()
     manager.enqueue = MagicMock()
     manager.enqueue.return_value.id = "job-1"
-    manager.cancel = MagicMock(return_value=None)
+    manager.delete_job = MagicMock(return_value=None)
     manager.clear = MagicMock(return_value=None)
     manager.get_jobs = MagicMock(return_value=JobList())
     manager.get_logs = MagicMock(return_value=[])
@@ -73,7 +73,7 @@ def test_cancel_calls_manager(client):
     resp = client.delete("/jobs/job-1")
     assert resp.status_int == 204
     assert resp.text == ""
-    main.job_manager.cancel.assert_called_once_with("job-1")
+    main.job_manager.delete_job.assert_called_once_with("job-1")
 
 
 def test_api_errors_are_json(client):
@@ -107,19 +107,6 @@ def test_cookie_status(client):
 def test_upload_cookies_missing_field(client):
     resp = client.post("/cookies", expect_errors=True)
     assert resp.status_int == 400
-
-
-def test_is_within_state_dir_blocks_state_subtree():
-    state_dir = Path(main.config.STATE_DIR).resolve()
-    assert main._is_within_state_dir(state_dir)
-    assert main._is_within_state_dir(state_dir / "cookies.txt")
-    assert main._is_within_state_dir(state_dir / "queue" / "item.json")
-
-
-def test_is_within_state_dir_allows_sibling_downloads():
-    download_dir = os.path.realpath(main.config.DOWNLOAD_DIR)
-    assert not main._is_within_state_dir(os.path.join(download_dir, "video.mp4"))
-    assert not main._is_within_state_dir("/tmp/unrelated/video.mp4")
 
 
 def test_download_blocks_state_dir_files(monkeypatch, tmp_path):
