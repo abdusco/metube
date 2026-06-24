@@ -278,17 +278,13 @@ function app() {
       document.documentElement.dataset.theme = this.resolvedTheme;
     },
 
-    get activeCount() {
-      return this.queue.filter((d) => d.status === "running").length;
-    },
-    get queuedCount() {
-      return this.queue.filter((d) => d.status === "queued").length;
-    },
-    get doneCount() {
-      return this.done.filter((d) => d.status === "finished").length;
-    },
-    get failedCount() {
-      return this.done.filter((d) => d.status === "error").length;
+    get stats() {
+      return {
+        active: this.queue.filter((d) => d.status === "running").length,
+        queued: this.queue.filter((d) => d.status === "queued").length,
+        done: this.done.filter((d) => d.status === "finished").length,
+        failed: this.done.filter((d) => d.status === "error").length,
+      };
     },
 
     /** @returns {Theme} */
@@ -338,10 +334,6 @@ function app() {
       this.format = this.downloadType === "video" ? "mp4" : "m4a";
       this.quality = "best";
     },
-
-    // ══════════════════════════════════════════════════════════════════════════
-    //  Formatting utilities
-    // ══════════════════════════════════════════════════════════════════════════
 
     /**
      * Format a byte count as a human-readable string.
