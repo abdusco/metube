@@ -136,8 +136,9 @@ def run_job(
         for part_file in part_files:
             try:
                 Path(part_file).unlink(missing_ok=True)
-            except OSError:
-                pass
+                log.debug("Deleted leftover part file: %s", part_file)
+            except OSError as exc:
+                log.warning("Could not delete part file %s: %s", part_file, exc)
 
     if cancel_event.is_set():
         db.mark_canceled(job.id)
