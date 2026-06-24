@@ -122,33 +122,21 @@
       <div class="advanced-section-header">Cookies</div>
       <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener" class="section-help-link">Get cookies.txt extension</a>
 
-      <div class="cookie-tabs">
-        <button class="tab-btn" :class="{ active: cookieTab === 'file' }" @click="cookieTab = 'file'">Upload file</button>
-        <button class="tab-btn" :class="{ active: cookieTab === 'paste' }" @click="cookieTab = 'paste'">Paste text</button>
+      <div style="margin-bottom: 8px">
+        <button class="btn btn-secondary btn-sm" @click="$refs.cookieFileInput.click()" :disabled="cookieUploading">
+          Choose file
+        </button>
+        <input x-ref="cookieFileInput" type="file" accept=".txt" @change="loadCookieFile($event)" style="display:none">
       </div>
 
-      <!-- File upload -->
-      <div x-show="cookieTab === 'file'">
-        <label class="file-label" for="cookie-file">
-          <span x-show="cookieUploading" class="spinner"></span>
-          <span x-show="!cookieUploading">📎</span>
-          <span x-text="cookieUploading ? 'Uploading…' : 'Choose cookies.txt'"></span>
-        </label>
-        <input id="cookie-file" type="file" accept=".txt" @change="uploadCookieFile($event)" :disabled="cookieUploading">
-      </div>
-
-      <!-- Paste text -->
-      <div x-show="cookieTab === 'paste'">
-        <textarea
-          x-model="cookieText"
-          placeholder="Paste Netscape cookies.txt content here…"
-          rows="5"
-        ></textarea>
-      </div>
+      <textarea
+        x-model="cookieText"
+        placeholder="Paste Netscape cookies.txt content here…"
+        rows="5"
+      ></textarea>
 
       <div class="cookie-actions">
         <button
-          x-show="cookieTab === 'paste'"
           class="btn btn-primary btn-sm"
           @click="uploadCookieText()"
           :disabled="cookieUploading || !cookieText.trim()"
@@ -157,24 +145,21 @@
           Save cookies
         </button>
 
-        <button
-          x-show="cookieDomains.length > 0"
-          class="btn btn-danger btn-sm"
-          @click="deleteCookies()"
-        >
-          Delete all
-        </button>
       </div>
 
       <template x-if="cookieDomains.length > 0">
-        <div class="cookie-domain-list">
-          <template x-for="domain in cookieDomains" :key="domain">
-            <div class="cookie-domain-row">
-              <div class="dot active"></div>
-              <span x-text="domain"></span>
-              <button class="btn-icon danger" @click="deleteCookiesForDomain(domain)" title="Delete">✕</button>
-            </div>
-          </template>
+        <div>
+          <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.5; margin: 12px 0 6px">Saved domains</div>
+          <div class="cookie-domain-list">
+            <template x-for="domain in cookieDomains" :key="domain">
+              <div class="cookie-domain-row">
+                <div class="dot active"></div>
+                <span x-text="domain"></span>
+                <button class="btn-icon danger" @click="deleteCookiesForDomain(domain)" title="Delete">✕</button>
+              </div>
+            </template>
+          </div>
+          <button class="btn btn-danger btn-sm" @click="deleteCookies()" style="margin-top: 8px">Delete all</button>
         </div>
       </template>
       <template x-if="cookieDomains.length === 0">

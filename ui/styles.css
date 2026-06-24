@@ -404,6 +404,8 @@ details.advanced > .cookie-actions { margin-top: 10px; }
 
 .cookie-domain-row span {
   color: var(--text);
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 0.85em;
 }
 
 /* ── Section headings ────────────────────────────────────────────────────── */

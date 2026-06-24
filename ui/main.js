@@ -51,8 +51,6 @@ function app() {
     cookieDomains: [],
     cookieUploading: false,
     cookieText: "",
-    cookieTab: /** @type {'file'|'paste'} */ ("file"),
-
     theme: /** @type {Theme} */ (
       localStorage.getItem("metube_theme") || "auto"
     ),
@@ -169,23 +167,19 @@ function app() {
     },
 
     /**
-     * Upload cookies from a file input.
+     * Read a selected cookies file into the textarea.
      * @param {Event} event
      */
-    async uploadCookieFile(event) {
+    loadCookieFile(event) {
       const input = /** @type {HTMLInputElement} */ (event.target);
       const file = input.files?.[0];
       if (!file) return;
-      this.cookieUploading = true;
-      try {
-        const fd = new FormData();
-        fd.append("cookies", file);
-        await fetch("cookies", { method: "POST", body: fd });
-        await this._refreshCookieStatus();
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        this.cookieText = /** @type {string} */ (e.target.result);
         input.value = "";
-      } finally {
-        this.cookieUploading = false;
-      }
+      };
+      reader.readAsText(file);
     },
 
     async uploadCookieText() {
