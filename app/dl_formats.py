@@ -109,7 +109,7 @@ def get_opts(
         # interleave manual + auto variants per language: ["en", "en-orig", "de", "de-orig"]
         opts["subtitleslangs"] = [v for lang in subtitle_langs for v in (lang, f"{lang}-orig")]
         if download_type == "video":
-            postprocessors.append({"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False})
+            postprocessors.append({"key": "FFmpegEmbedSubtitle", "already_have_subtitle": True})
 
     if download_type == "video" and "writethumbnail" not in opts:
         opts["writethumbnail"] = True
