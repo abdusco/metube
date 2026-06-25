@@ -17,7 +17,7 @@ import yt_dlp.networking.impersonate
 from cookies_db import CookieDB
 from job_db import JobDB
 from logs_db import LogsDB
-from job_models import EnqueueJobResult, JobCreate, JobList, JobStatus
+from job_models import EnqueueJobResult, JobCreate, JobList, JobStatus, VideoInfo
 from job_worker import run_job
 
 if typing.TYPE_CHECKING:
@@ -60,7 +60,7 @@ class JobManager:
         self.cookies_db.close()
         self.logs_db.close()
 
-    def _extract_title(self, url: str) -> str:
+    def _extract_info(self, url: str) -> tuple[str, VideoInfo | None]:
         params = {
             **dict(self.config.YTDL_OPTIONS),
             "quiet": True,
@@ -84,14 +84,15 @@ class JobManager:
         else:
             info = yt_dlp.YoutubeDL(params=params).extract_info(url, download=False)
         if isinstance(info, dict):
-            return str(info.get("title") or info.get("id") or url)
-        return url
+            title = str(info.get("title") or info.get("id") or url)
+            return title, VideoInfo.model_validate(info)
+        return url, None
 
     def enqueue(self, job_create: JobCreate) -> EnqueueJobResult:
         self._clear_expired()
-        title = self._extract_title(job_create.url)
+        title, video_info = self._extract_info(job_create.url)
         job_id = str(uuid.uuid4())
-        self.db.create_job(job_id, job_create, title)
+        self.db.create_job(job_id, job_create, title, video_info)
         return EnqueueJobResult(id=job_id)
 
     def _clear_expired(self) -> None:

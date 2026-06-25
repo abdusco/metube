@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class JobStatus(StrEnum):
@@ -27,6 +27,38 @@ class JobCreate(BaseModel):
     format: str
     quality: str
     subtitle_langs: list[str] = Field(default_factory=list)
+
+
+class VideoInfo(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    title: str | None = None
+    uploader: str | None = None
+    uploader_id: str | None = None
+    channel: str | None = None
+    channel_id: str | None = None
+    description: str | None = None
+    thumbnail: str | None = None
+    webpage_url: str | None = None
+    extractor: str | None = None
+    extractor_key: str | None = None
+    upload_date: str | None = None
+    timestamp: float | None = None
+    duration: float | None = None
+    view_count: int | None = None
+    like_count: int | None = None
+    comment_count: int | None = None
+    tags: list[str] | None = None
+    categories: list[str] | None = None
+    age_limit: int | None = None
+    is_live: bool | None = None
+    was_live: bool | None = None
+    availability: str | None = None
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+    ext: str | None = None
 
 
 class SubtitleFile(BaseModel):
@@ -56,6 +88,7 @@ class Job(BaseModel):
     subtitle_files: list[SubtitleFile] = Field(default_factory=list)
     cancel_requested_at: datetime | None = Field(default=None, exclude=True)
     temp_files: list[str] = Field(default_factory=list, exclude=True)
+    video_info: VideoInfo | None = Field(default=None, exclude=True)
 
     @property
     def files(self) -> list[str]:

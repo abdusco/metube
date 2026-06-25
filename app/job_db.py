@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 from pathlib import Path
 
-from job_models import Job, JobCreate, JobStatus, SubtitleFile
+from job_models import Job, JobCreate, JobStatus, SubtitleFile, VideoInfo
 
 
 def _now() -> datetime:
@@ -68,6 +68,10 @@ class JobDB:
                     self._conn.execute("ALTER TABLE jobs ADD COLUMN temp_files_json JSONB NOT NULL DEFAULT (jsonb('[]'))")
                 except sqlite3.OperationalError:
                     pass  # column already exists
+                try:
+                    self._conn.execute("ALTER TABLE jobs ADD COLUMN video_info_json JSONB")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
 
     _SELECT_COLUMNS = """
         id,
@@ -88,6 +92,7 @@ class JobDB:
         error,
         json(subtitle_files_json) AS subtitle_files_json,
         json(temp_files_json) AS temp_files_json,
+        json(video_info_json) AS video_info_json,
         cancel_requested_at,
         created_at,
         updated_at,
@@ -105,17 +110,18 @@ class JobDB:
         data["subtitle_langs"] = json.loads(data.pop("subtitle_langs_json") or "[]")
         data["subtitle_files"] = json.loads(data.pop("subtitle_files_json") or "[]")
         data["temp_files"] = json.loads(data.pop("temp_files_json") or "[]")
+        data["video_info"] = json.loads(data.pop("video_info_json") or "null")
         return Job.model_validate(data)
 
-    def create_job(self, job_id: str, spec: JobCreate, title: str) -> Job:
+    def create_job(self, job_id: str, spec: JobCreate, title: str, video_info: VideoInfo | None = None) -> Job:
         with self._lock:
             with self._conn:
                 self._conn.execute(
                     """
                     INSERT INTO jobs (
                       id, url, title, download_type, codec, format, quality,
-                      subtitle_langs_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, jsonb(?))
+                      subtitle_langs_json, video_info_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, jsonb(?), jsonb(?))
                     """,
                     (
                         job_id,
@@ -126,6 +132,7 @@ class JobDB:
                         spec.format,
                         spec.quality,
                         self._encode_jsonb(spec.subtitle_langs),
+                        self._encode_jsonb(video_info.model_dump(mode="json")) if video_info is not None else None,
                     ),
                 )
             return self.get_job(job_id)

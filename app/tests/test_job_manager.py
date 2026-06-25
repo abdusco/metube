@@ -41,7 +41,7 @@ def test_enqueue_creates_queued_job(tmp_path: Path):
 
     manager = JobManager(cfg)
     try:
-        with patch("job_manager.JobManager._extract_title", return_value="Example"):
+        with patch("job_manager.JobManager._extract_info", return_value=("Example", None)):
             out = manager.enqueue(
                 JobCreate(
                     url="https://example.com/watch?v=1",
