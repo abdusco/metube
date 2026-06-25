@@ -29,10 +29,9 @@ log = logging.getLogger("job_manager")
 class JobManager:
     def __init__(self, config: Config) -> None:
         self.config = config
-        state_dir = Path(self.config.STATE_DIR)
-        self.db = JobDB(state_dir / "jobs.sqlite3")
-        self.cookies_db = CookieDB(state_dir / "jobs.sqlite3")
-        self.logs_db = LogsDB(state_dir / "jobs.sqlite3")
+        self.db = JobDB(self.config.STATE_DIR / "jobs.sqlite3")
+        self.cookies_db = CookieDB(self.config.STATE_DIR / "jobs.sqlite3")
+        self.logs_db = LogsDB(self.config.STATE_DIR / "jobs.sqlite3")
         for job in self.db.list_running():
             for tf in job.temp_files:
                 try:
@@ -41,7 +40,7 @@ class JobManager:
                 except OSError as exc:
                     log.warning("Could not clean up temp file %s: %s", tf, exc)
         self.db.reset_running_jobs_to_error()
-        self._executor = ThreadPoolExecutor(max_workers=int(self.config.MAX_CONCURRENT_DOWNLOADS))
+        self._executor = ThreadPoolExecutor(max_workers=self.config.MAX_CONCURRENT_DOWNLOADS)
         self._active_futures: dict[str, Future] = {}
         self._cancel_events: dict[str, threading.Event] = {}
         self._logs: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=2000))
@@ -70,7 +69,7 @@ class JobManager:
             "extract_flat": True,
             "ignore_no_formats_error": True,
             "noplaylist": True,
-            "paths": {"home": self.config.DOWNLOAD_DIR, "temp": self.config.TEMP_DIR},
+            "paths": {"home": str(self.config.DOWNLOAD_DIR), "temp": str(self.config.TEMP_DIR or self.config.DOWNLOAD_DIR)},
         }
         imp = params.get("impersonate")
         if imp is not None:
@@ -103,7 +102,7 @@ class JobManager:
         if not jobs:
             return
         if self.config.DELETE_FILE_ON_TRASHCAN:
-            base = Path(self.config.DOWNLOAD_DIR)
+            base = self.config.DOWNLOAD_DIR
             for job in jobs:
                 rel_names = [job.filename] if job.filename else []
                 rel_names += [sf.filename for sf in job.subtitle_files if sf.filename]
@@ -122,7 +121,7 @@ class JobManager:
     def _scheduler_loop(self) -> None:
         while not self._stop.is_set():
             self._cleanup_finished_futures()
-            available = int(self.config.MAX_CONCURRENT_DOWNLOADS) - self._running_count()
+            available = self.config.MAX_CONCURRENT_DOWNLOADS - self._running_count()
             if available <= 0:
                 time.sleep(0.2)
                 continue
@@ -158,8 +157,8 @@ class JobManager:
             run_job(
                 self.db,
                 job,
-                download_dir=Path(self.config.DOWNLOAD_DIR),
-                temp_dir=Path(self.config.TEMP_DIR),
+                download_dir=self.config.DOWNLOAD_DIR,
+                temp_dir=self.config.TEMP_DIR or self.config.DOWNLOAD_DIR,
                 output_template=self.config.OUTPUT_TEMPLATE,
                 ytdl_options=dict(self.config.YTDL_OPTIONS),
                 cancel_event=cancel_event,
@@ -215,7 +214,7 @@ class JobManager:
         except KeyError:
             return
         if self.config.DELETE_FILE_ON_TRASHCAN:
-            base = Path(self.config.DOWNLOAD_DIR)
+            base = self.config.DOWNLOAD_DIR
             for rel_name in job.files:
                 try:
                     (base / rel_name).unlink()

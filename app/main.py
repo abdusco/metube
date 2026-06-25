@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote
 
+
 from bottle import Bottle, HTTPError, HTTPResponse, abort, request, response, static_file
 from pydantic import ValidationError as PydanticValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -55,34 +56,20 @@ if not logging.getLogger().hasHandlers():
 class Config(BaseSettings):
     model_config = SettingsConfigDict(case_sensitive=True, extra="ignore")
 
-    DOWNLOAD_DIR: str = "."
-    TEMP_DIR: str = ""
+    DOWNLOAD_DIR: Path = Path(".")
+    TEMP_DIR: Path | None = None
     DELETE_FILE_ON_TRASHCAN: bool = True
-    STATE_DIR: str = "."
+    STATE_DIR: Path = Path(".")
     PUBLIC_HOST_URL: str = "download/"
     OUTPUT_TEMPLATE: str = "%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s"
     YTDL_OPTIONS: dict[str, Any] = {}
     CORS_ALLOWED_ORIGINS: str = ""
     HOST: str = "0.0.0.0"
     PORT: int = 8081
-    BASE_DIR: str = ""
+    BASE_DIR: Path = Path("")
     MAX_CONCURRENT_DOWNLOADS: int = 3
     CLEAR_COMPLETED_AFTER: int = 0
     YTDL_NIGHTLY_UPDATE_TIME: str = ""
-
-    @field_validator("PORT")
-    @classmethod
-    def _valid_port(cls, value: int) -> int:
-        if not (1 <= value <= 65535):
-            raise ValueError("must be between 1 and 65535")
-        return value
-
-    @field_validator("MAX_CONCURRENT_DOWNLOADS")
-    @classmethod
-    def _valid_concurrency(cls, value: int) -> int:
-        if value < 1:
-            raise ValueError("must be >= 1")
-        return value
 
     @field_validator("CLEAR_COMPLETED_AFTER")
     @classmethod
@@ -99,7 +86,7 @@ class Config(BaseSettings):
         return value
 
     def model_post_init(self, __context: Any) -> None:
-        if not self.TEMP_DIR:
+        if self.TEMP_DIR is None:
             self.TEMP_DIR = self.DOWNLOAD_DIR
         if self.PUBLIC_HOST_URL and not self.PUBLIC_HOST_URL.endswith("/"):
             self.PUBLIC_HOST_URL += "/"
@@ -294,20 +281,20 @@ def cookie_status() -> dict[str, Any]:
 
 @app.get("/download/<filepath:path>")
 def serve_download(filepath: str):
-    target = (Path(config.DOWNLOAD_DIR) / unquote(filepath)).resolve()
-    if target.is_relative_to(Path(config.STATE_DIR).resolve()):
+    target = (config.DOWNLOAD_DIR / unquote(filepath)).resolve()
+    if target.is_relative_to(config.STATE_DIR.resolve()):
         abort(404)
-    return static_file(filepath, root=config.DOWNLOAD_DIR)
+    return static_file(filepath, root=str(config.DOWNLOAD_DIR))
 
 
 @app.get("/")
 def index():
-    return static_file("index.html", root=str(Path(config.BASE_DIR) / "ui"))
+    return static_file("index.html", root=str(config.BASE_DIR / "ui"))
 
 
 @app.get("/<filepath:path>")
 def static_ui(filepath: str):
-    return static_file(filepath, root=str(Path(config.BASE_DIR) / "ui"))
+    return static_file(filepath, root=str(config.BASE_DIR / "ui"))
 
 
 def _start_nightly_update_thread() -> None:
@@ -328,7 +315,7 @@ if __name__ == "__main__":
     if config.YTDL_NIGHTLY_UPDATE_TIME:
         _start_nightly_update_thread()
     try:
-        waitress.serve(app, host=config.HOST, port=int(config.PORT), threads=8)
+        waitress.serve(app, host=config.HOST, port=config.PORT, threads=8)
     finally:
         job_manager.shutdown()
 

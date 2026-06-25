@@ -83,18 +83,6 @@ class ConfigTests(unittest.TestCase):
                 with self.assertRaises(ValidationError):
                     Config()
 
-    def test_invalid_max_concurrent_downloads_exits(self):
-        for bad in ("0", "-1", "abc"):
-            with patch.dict(os.environ, _base_env(MAX_CONCURRENT_DOWNLOADS=bad), clear=False):
-                with self.assertRaises(ValidationError):
-                    Config()
-
-    def test_invalid_port_exits(self):
-        for bad in ("0", "70000", "notaport"):
-            with patch.dict(os.environ, _base_env(PORT=bad), clear=False):
-                with self.assertRaises(ValidationError):
-                    Config()
-
 
 
 

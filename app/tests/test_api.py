@@ -116,8 +116,8 @@ def test_download_blocks_state_dir_files(monkeypatch, tmp_path):
     (state_dir / "cookies.txt").write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
     (download_dir / "video.mp4").write_bytes(b"video")
 
-    monkeypatch.setattr(main.config, "DOWNLOAD_DIR", str(download_dir))
-    monkeypatch.setattr(main.config, "STATE_DIR", str(state_dir))
+    monkeypatch.setattr(main.config, "DOWNLOAD_DIR", download_dir)
+    monkeypatch.setattr(main.config, "STATE_DIR", state_dir)
 
     test_client = TestApp(main.app)
 

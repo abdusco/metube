@@ -9,9 +9,9 @@ from job_models import EnqueueJobResult, JobCreate, JobList
 
 class _Config:
     def __init__(self, base: Path) -> None:
-        self.STATE_DIR = str(base / "state")
-        self.DOWNLOAD_DIR = str(base / "downloads")
-        self.TEMP_DIR = str(base / "downloads")
+        self.STATE_DIR = base / "state"
+        self.DOWNLOAD_DIR = base / "downloads"
+        self.TEMP_DIR = base / "downloads"
         self.MAX_CONCURRENT_DOWNLOADS = 2
         self.CLEAR_COMPLETED_AFTER = 0
         self.YTDL_OPTIONS = {}
@@ -21,8 +21,8 @@ class _Config:
 
 def test_get_queue_shape(tmp_path: Path):
     cfg = _Config(tmp_path)
-    Path(cfg.STATE_DIR).mkdir(parents=True, exist_ok=True)
-    Path(cfg.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
+    cfg.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    cfg.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     manager = JobManager(cfg)
     try:
@@ -36,8 +36,8 @@ def test_get_queue_shape(tmp_path: Path):
 
 def test_enqueue_creates_queued_job(tmp_path: Path):
     cfg = _Config(tmp_path)
-    Path(cfg.STATE_DIR).mkdir(parents=True, exist_ok=True)
-    Path(cfg.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
+    cfg.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    cfg.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     manager = JobManager(cfg)
     try:
@@ -63,8 +63,8 @@ def test_enqueue_creates_queued_job(tmp_path: Path):
 
 def test_logs_default_empty(tmp_path: Path):
     cfg = _Config(tmp_path)
-    Path(cfg.STATE_DIR).mkdir(parents=True, exist_ok=True)
-    Path(cfg.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
+    cfg.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    cfg.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     manager = JobManager(cfg)
     try:
