@@ -65,9 +65,7 @@ class JobDB:
                 self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)")
                 self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_updated ON jobs(updated_at)")
                 try:
-                    self._conn.execute(
-                        "ALTER TABLE jobs ADD COLUMN temp_files_json JSONB NOT NULL DEFAULT (jsonb('[]'))"
-                    )
+                    self._conn.execute("ALTER TABLE jobs ADD COLUMN temp_files_json JSONB NOT NULL DEFAULT (jsonb('[]'))")
                 except sqlite3.OperationalError:
                     pass  # column already exists
 
@@ -99,7 +97,7 @@ class JobDB:
 
     @staticmethod
     def _encode_jsonb(value: Any) -> str:
-        return json.dumps(value)
+        return json.dumps(value, ensure_ascii=False)
 
     @classmethod
     def _row_to_job(cls, row: sqlite3.Row) -> Job:
