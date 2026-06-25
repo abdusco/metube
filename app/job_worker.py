@@ -115,6 +115,7 @@ def run_job(
                     final_name = str(Path(info_dict["__finaldir"]) / Path(filepath).name)
                 rel = os.path.relpath(final_name, download_dir)
                 size = Path(final_name).stat().st_size if Path(final_name).exists() else None
+                log.debug("output file for job %s: %s (%s bytes)", job.id, rel, size)
                 db.set_output_file(job.id, rel, size)
             requested_subtitles = info_dict.get("requested_subtitles") or {}
             final_dir = info_dict.get("__finaldir")
@@ -162,6 +163,7 @@ def run_job(
         ydl._pps["before_dl"].insert(0, _ThumbnailExtFixerPP(ydl))
         return ydl.download([job.url])
 
+    log.info("starting job %s: %r", job.id, job.title)
     try:
         if cookies_content:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", encoding="utf-8") as f:
@@ -173,25 +175,29 @@ def run_job(
             result = _download()
     except Exception as exc:
         if cancel_event.is_set():
+            log.info("canceled job %s", job.id)
             db.mark_canceled(job.id)
             return
         message = str(exc)
-        log.error("Job %s failed: %s", job.id, message)
+        log.error("job %s failed: %s", job.id, message)
         db.mark_error(job.id, message)
         return
     finally:
         for f in temp_files:
             try:
                 Path(f).unlink(missing_ok=True)
-                log.debug("Deleted leftover temp file: %s", f)
+                log.debug("deleted leftover temp file: %s", f)
             except OSError as exc:
-                log.warning("Could not delete temp file %s: %s", f, exc)
+                log.warning("could not delete temp file %s: %s", f, exc)
         db.clear_temp_files(job.id)
 
     if cancel_event.is_set():
+        log.info("canceled job %s", job.id)
         db.mark_canceled(job.id)
         return
     if result == 0:
+        log.info("finished job %s: %r", job.id, job.title)
         db.mark_finished(job.id)
     else:
+        log.error("job %s exited with yt-dlp code %d", job.id, result)
         db.mark_error(job.id, f"yt-dlp exited with code {result}")

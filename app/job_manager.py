@@ -85,7 +85,10 @@ class JobManager:
             info = yt_dlp.YoutubeDL(params=params).extract_info(url, download=False)
         if isinstance(info, dict):
             title = str(info.get("title") or info.get("id") or url)
-            return title, VideoInfo.model_validate(info)
+            video_info = VideoInfo.model_validate(info)
+            log.debug("extracted info for %s: title=%r extractor=%s", url, title, video_info.extractor)
+            return title, video_info
+        log.warning("no info dict returned for %s, falling back to URL as title", url)
         return url, None
 
     def enqueue(self, job_create: JobCreate) -> EnqueueJobResult:
@@ -93,6 +96,7 @@ class JobManager:
         title, video_info = self._extract_info(job_create.url)
         job_id = str(uuid.uuid4())
         self.db.create_job(job_id, job_create, title, video_info)
+        log.info("enqueued job %s: %r (%s)", job_id, title, job_create.url)
         return EnqueueJobResult(id=job_id)
 
     def _clear_expired(self) -> None:
@@ -115,6 +119,7 @@ class JobManager:
                     except OSError as exc:
                         log.warning("Could not delete file %s for %s: %s", rel_name, job.id, exc)
         ids = [job.id for job in jobs]
+        log.info("clearing %d expired job(s)", len(ids))
         for job_id in ids:
             self._logs.pop(job_id, None)
         self.db.delete_done(ids)
@@ -154,6 +159,7 @@ class JobManager:
 
     def _run_single_job(self, job_id: str, cancel_event: threading.Event) -> None:
         job = self.db.get_job(job_id)
+        log.debug("dispatching job %s to worker", job_id)
         try:
             run_job(
                 self.db,
@@ -199,11 +205,13 @@ class JobManager:
             quality=job.quality,
             subtitle_langs=job.subtitle_langs,
         )
-        self.db.create_job(new_id, job_create, job.title)
+        self.db.create_job(new_id, job_create, job.title, job.video_info)
+        log.info("retrying job %s as %s: %r", job_id, new_id, job.title)
         return EnqueueJobResult(id=new_id)
 
     def delete_job(self, job_id: str) -> None:
         status = self.db.request_cancel(job_id)
+        log.info("deleting job %s (status=%s)", job_id, status)
         if status == JobStatus.RUNNING:
             with self._lock:
                 event = self._cancel_events.get(job_id)

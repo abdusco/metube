@@ -61,7 +61,7 @@ class Config(BaseSettings):
     DOWNLOAD_DIR: Path = Path(".")
     TEMP_DIR: Path | None = None
     DELETE_FILE_ON_TRASHCAN: bool = True
-    STATE_DIR: Path = Path(".")
+    STATE_DIR: Path = Path(".metube")
     PUBLIC_HOST_URL: str = "download/"
     OUTPUT_TEMPLATE: str = "%(uploader)s -- @%(extractor)s -- %(title)s -- %(upload_date>%Y-%m-%d)s.%(ext)s"
     YTDL_OPTIONS: dict[str, Any] = {}
@@ -199,6 +199,7 @@ def _first_validation_error(exc: PydanticValidationError) -> str:
 
 
 def _default_error_handler(err: HTTPError) -> str:
+    log.error("HTTP %d %s %s: %s", err.status_code, request.method, request.path, _error_message(err, ""), exc_info=err.exception)
     response.status = err.status_code
     response.content_type = "application/json"
     return json.dumps(StatusResponse.from_error(_error_message(err, HTTPStatus(err.status_code).phrase)).model_dump())
@@ -306,6 +307,7 @@ def cookie_status() -> dict[str, Any]:
 def serve_download(filepath: str):
     target = (config.DOWNLOAD_DIR / unquote(filepath)).resolve()
     if target.is_relative_to(config.STATE_DIR.resolve()):
+        log.warning("Attempt to access file in state directory: %s", target)
         abort(404)
     return static_file(filepath, root=str(config.DOWNLOAD_DIR))
 

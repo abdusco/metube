@@ -3,11 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import hmac
+import logging
 from functools import wraps
 from http import HTTPStatus
 from pathlib import Path
 
 from bottle import Bottle, HTTPResponse, abort, redirect, request, static_file
+
+log = logging.getLogger("auth")
 
 
 def without_auth(func):
@@ -48,6 +51,7 @@ class AuthPlugin:
         def _wrapped(*args, **kwargs):
             if self._check_cookie():
                 return callback(*args, **kwargs)
+            log.debug("unauthenticated request: %s %s", request.method, request.path)
             abort(401, "Authentication required")
 
         return _wrapped
@@ -77,6 +81,9 @@ class AuthPlugin:
 
     @without_auth
     def _logout(self):
+        raw = request.get_cookie("session") or ""
+        username = raw.partition(":")[0] if ":" in raw else "<unknown>"
+        log.info("logout: %s from %s", username, request.remote_addr)
         resp = HTTPResponse(status=HTTPStatus.SEE_OTHER)
         resp.set_header("Location", "/")
         resp.delete_cookie("session", path="/")
@@ -87,7 +94,9 @@ class AuthPlugin:
         username = request.forms.get("username", "").strip()
         password = request.forms.get("password", "")
         if not self._valid_credentials(username, password):
+            log.warning("failed login for %r from %s", username, request.remote_addr)
             redirect("/login?error=invalid_credentials")
+        log.info("login: %s from %s", username, request.remote_addr)
         token = f"{username}:{self._make_token(username)}"
         resp = HTTPResponse(status=HTTPStatus.SEE_OTHER)
         resp.set_header("Location", "/")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 from datetime import UTC, datetime
@@ -8,6 +9,8 @@ from typing import Any
 from pathlib import Path
 
 from job_models import Job, JobCreate, JobStatus, SubtitleFile, VideoInfo
+
+log = logging.getLogger("job_db")
 
 
 def _now() -> datetime:
@@ -365,7 +368,7 @@ class JobDB:
         now = _now().isoformat()
         with self._lock:
             with self._conn:
-                self._conn.execute(
+                result = self._conn.execute(
                     """
                     UPDATE jobs
                     SET status = ?, error = ?, message = ?, updated_at = ?, finished_at = ?
@@ -373,3 +376,5 @@ class JobDB:
                     """,
                     (JobStatus.ERROR, "Interrupted by restart", "Interrupted by restart", now, now, JobStatus.RUNNING),
                 )
+        if result.rowcount:
+            log.warning("marked %d interrupted job(s) as error on startup", result.rowcount)
