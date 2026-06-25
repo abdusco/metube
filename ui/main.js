@@ -44,6 +44,7 @@ function app() {
     done: [],
 
     adding: false,
+    authEnabled: false,
     /** @type {string|null} */
     error: null,
 
@@ -66,12 +67,25 @@ function app() {
     _polling: false,
     _mq: null,
 
+    async _fetch(url, opts = {}) {
+      const r = await fetch(url, opts);
+      if (r.status === 401) {
+        location.href = "/login";
+        return null;
+      }
+      return r;
+    },
+
     async init() {
       this._applyTheme();
       this._mq = window.matchMedia("(prefers-color-scheme: dark)");
       this._mq.addEventListener("change", () => this._applyTheme());
 
-      await Promise.all([this._refreshCookieStatus(), this.pollState()]);
+      await Promise.all([
+        this._refreshCookieStatus(),
+        this.pollState(),
+        this._fetchConfig(),
+      ]);
 
       setInterval(() => this.pollState(), 2000);
     },
@@ -80,8 +94,8 @@ function app() {
       if (this._polling) return;
       this._polling = true;
       try {
-        const resp = await fetch("jobs");
-        if (!resp.ok) return;
+        const resp = await this._fetch("jobs");
+        if (!resp?.ok) return;
         const data = await resp.json();
         this.queue = (data.queued || []).slice().reverse();
         this.done = (data.done || []).slice().reverse();
@@ -104,7 +118,7 @@ function app() {
       this.adding = true;
       this.error = null;
       try {
-        const resp = await fetch("jobs", {
+        const resp = await this._fetch("jobs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -116,6 +130,7 @@ function app() {
             subtitle_langs: langs,
           }),
         });
+        if (!resp) return;
         const data = await resp.json();
         if (data.status === "ok") {
           this.url = "";
@@ -135,18 +150,18 @@ function app() {
      * @param {string} id
      */
     async cancelDownload(id) {
-      await fetch(`jobs/${id}`, { method: "DELETE" });
+      await this._fetch(`jobs/${id}`, { method: "DELETE" });
       await this.pollState();
     },
 
     async deleteJob(id) {
-      await fetch(`jobs/${id}`, { method: "DELETE" });
+      await this._fetch(`jobs/${id}`, { method: "DELETE" });
       await this.pollState();
     },
 
     /** Clear all completed downloads. */
     async clearCompletedJobs() {
-      await fetch("jobs/clear", { method: "POST" });
+      await this._fetch("jobs/clear", { method: "POST" });
       await this.pollState();
     },
 
@@ -155,14 +170,26 @@ function app() {
      * @param {Download} dl
      */
     async retryDownload(dl) {
-      await fetch(`jobs/${dl.id}/retry`, { method: "POST" });
+      await this._fetch(`jobs/${dl.id}/retry`, { method: "POST" });
       await this.pollState();
+    },
+
+    async _fetchConfig() {
+      try {
+        const resp = await this._fetch("config");
+        if (resp?.ok) {
+          const data = await resp.json();
+          this.authEnabled = data.auth_enabled;
+        }
+      } catch {
+        /* ignore */
+      }
     },
 
     async _refreshCookieStatus() {
       try {
-        const resp = await fetch("cookies");
-        if (resp.ok) {
+        const resp = await this._fetch("cookies");
+        if (resp?.ok) {
           const data = await resp.json();
           this.cookieDomains = data.domains || [];
         }
@@ -194,7 +221,7 @@ function app() {
         const blob = new Blob([this.cookieText], { type: "text/plain" });
         const fd = new FormData();
         fd.append("cookies", blob, "cookies.txt");
-        await fetch("cookies", { method: "POST", body: fd });
+        await this._fetch("cookies", { method: "POST", body: fd });
         await this._refreshCookieStatus();
         this.cookieText = "";
       } finally {
@@ -203,13 +230,13 @@ function app() {
     },
 
     async deleteCookies() {
-      await fetch("cookies", { method: "DELETE" });
+      await this._fetch("cookies", { method: "DELETE" });
       await this._refreshCookieStatus();
     },
 
     /** @param {string} domain */
     async deleteCookiesForDomain(domain) {
-      await fetch(`cookies/${encodeURIComponent(domain)}`, {
+      await this._fetch(`cookies/${encodeURIComponent(domain)}`, {
         method: "DELETE",
       });
       await this._refreshCookieStatus();
@@ -259,8 +286,8 @@ function app() {
     /** @param {string} id */
     async _fetchLogs(id) {
       try {
-        const resp = await fetch("logs?id=" + encodeURIComponent(id));
-        if (resp.ok) {
+        const resp = await this._fetch("logs?id=" + encodeURIComponent(id));
+        if (resp?.ok) {
           const data = await resp.json();
           this.logs = { ...this.logs, [id]: data.lines };
         }

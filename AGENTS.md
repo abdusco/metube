@@ -1,14 +1,8 @@
 # Agent Guidelines
 
-## README.md size constraint
-
-The README.md is synced to Docker Hub, which has a **25,000 character limit**.
-Any change to README.md **must** keep the file under 25,000 characters (`wc -c README.md`).
-If an addition would exceed the limit, trim existing prose elsewhere — prefer tightening verbose descriptions over removing sections.
-
 ## Tech stack
 
-- **Backend:** Python 3.13+, Bottle + Waitress (not aiohttp), yt-dlp[default,curl-cffi,deno], Pydantic v2, pydantic-settings
+- **Backend:** Python 3.13+, Bottle + Waitress, yt-dlp[default,curl-cffi,deno], Pydantic v2, pydantic-settings
 - **Database:** SQLite in WAL mode — all state in `jobs.sqlite3` (jobs, cookies, logs in separate tables). JSONB columns require SQLite ≥ 3.45; the Docker image bundles Python 3.13 with a compatible SQLite. On the host machine the system sqlite3 binary may be older — always run DB queries via Python inside the container.
 - **Frontend:** Alpine.js 3 (CDN), plain HTML/CSS/JS — no build step, no framework
 - **Package manager:** uv (Python only)
@@ -54,29 +48,16 @@ ui/styles.css        — CSS custom properties, light/dark theme
 
 ## Key conventions
 
-### Configuration
-All config comes from environment variables via the `Config` class (`app/main.py`, Pydantic `BaseSettings`). New env vars go there. `TEMP_DIR` defaults to `DOWNLOAD_DIR` when blank.
+### Python
+- Add type annotations, but be pragmatic — don't overcomplicate with `typing.Literal` or `typing.TypedDict` unless it adds value.
+- Use `pathlib.Path` for filesystem paths, not `str`.
+- Use `logging` for all logging, not `print()`.
+- Use `with` context managers for file I/O and temp files.
+- Use `tempfile.NamedTemporaryFile` for temporary files
 
-### API & real-time updates
-REST API served by Bottle. Real-time updates use HTTP polling: the frontend calls `GET /jobs` every ~2 seconds. There is no WebSocket.
-
-### SQLite JSONB
-Array columns (`subtitle_langs_json`, `subtitle_files_json`, `temp_files_json`) are stored as JSONB. Always:
-- Read with `json(col)` (converts JSONB → text JSON) — see `_SELECT_COLUMNS` in `job_db.py`
-- Write with `jsonb(?)` and pass a JSON string — see every `UPDATE` in `job_db.py`
-- All three DB classes (`JobDB`, `CookieDB`, `LogsDB`) share the same `jobs.sqlite3` file and each hold their own `threading.RLock()`.
-
-### Cookie handling
-Cookies are stored per-domain in `CookieDB`. Both the title-extraction phase (`JobManager._extract_title`) and the actual download (`run_job` in `job_worker.py`) call `CookieDB.get_merged_content()`, write the result to a `NamedTemporaryFile`, and pass `cookiefile` to yt-dlp. The temp file is deleted automatically when the `with` block exits.
-
-### yt-dlp postprocessors
-`run_job` in `job_worker.py` inserts `_ThumbnailExtFixerPP` at position 0 of `ydl._pps["before_dl"]` before starting the download. This PP detects thumbnails whose file extension doesn't match their actual image format (e.g. JPEG content served as `.png`, common on Reddit) and renames them before `FFmpegThumbnailsConvertor` runs — which forces `-f image2` and would otherwise pick the wrong decoder.
-
-### Subtitle files
-`FFmpegEmbedSubtitle` is configured with `already_have_subtitle=True` (in `dl_formats.py`). This tells yt-dlp to embed subtitles without deleting the `.vtt` source files afterward, so the download URLs served by the API remain valid.
-
-### Temp file tracking
-In-progress download files (`.part`, thumbnails, subtitle intermediates) are tracked in `temp_files_json` in the jobs table. On job cancel, error, or server restart, `job_worker.py` deletes any listed files and `JobDB.reset_running_jobs_to_error()` marks interrupted jobs as errored.
+### SQLite 
+- Always use full type names instead of primitives, e.g. JSON over TEXT, DATETIME over TEXT, INTEGER over INT. This ensures compatibility with SQLite's type affinity rules.
+- Use `jsonb` for JSON columns (requires SQLite ≥ 3.45). 
 
 ### No pre-commit hooks
 Linting and tests are enforced in CI only. Run `uv run pytest app/tests/` before pushing.

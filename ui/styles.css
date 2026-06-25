@@ -168,7 +168,7 @@ main {
 
 /* ── Form controls ───────────────────────────────────────────────────────── */
 
-:is(input[type="text"], input[type="url"], select, textarea) {
+:is(input[type="text"], input[type="url"], input[type="password"], select, textarea) {
   background: var(--surface-alt);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -598,3 +598,24 @@ input[type="file"] { display: none; }
   .metrics { gap: var(--space-2); }
   .metric  { font-size: .78rem; }
 }
+
+/* Login page */
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-5);
+}
+
+.login-page main { max-width: 360px; width: 100%; }
+
+.login-logo {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: -.3px;
+  text-align: center;
+  margin-bottom: var(--space-6);
+}
+
+.field { margin-bottom: var(--space-4); }

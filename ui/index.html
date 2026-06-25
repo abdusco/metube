@@ -34,6 +34,10 @@
       <span :class="{ active: theme === 'auto' }"  @click="setTheme('auto')"  title="Auto">⬤</span>
       <span :class="{ active: theme === 'dark' }"  @click="setTheme('dark')"  title="Dark">☾</span>
     </div>
+
+    <form method="post" action="logout" style="margin:0" x-show="authEnabled">
+      <button class="btn btn-secondary btn-sm" type="submit">Sign out</button>
+    </form>
   </div>
 </header>
 

@@ -139,3 +139,7 @@ class CreateJobResponse(BaseModel):
 class GetLogsResponse(BaseModel):
     job_id: str
     lines: list[str] = Field(default_factory=list)
+
+
+class ConfigResponse(BaseModel):
+    auth_enabled: bool

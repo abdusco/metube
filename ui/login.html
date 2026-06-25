@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MeTube — Sign in</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="login-page">
+
+<main>
+  <div class="login-logo">MeTube</div>
+  <div class="card">
+    <div class="card-title">Sign in</div>
+
+    <div id="login-error" class="error-banner" style="display:none">
+      Invalid username or password.
+    </div>
+
+    <form method="post" action="/login">
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username" autofocus required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center">
+        Sign in
+      </button>
+    </form>
+  </div>
+</main>
+
+<script>
+  if (new URLSearchParams(location.search).get('error') === 'invalid_credentials') {
+    document.getElementById('login-error').style.display = 'block';
+  }
+</script>
+</body>
+</html>

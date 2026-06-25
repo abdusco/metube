@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import secrets
 import signal
 import sys
 import threading
@@ -25,8 +26,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.exceptions import SettingsError
 import waitress
 
+from auth import AuthPlugin, without_auth
 from job_manager import JobManager
-from job_models import AddJobRequest, CookieStatusResponse, CreateJobResponse, GetLogsResponse, StatusResponse
+from job_models import AddJobRequest, ConfigResponse, CookieStatusResponse, CreateJobResponse, GetLogsResponse, StatusResponse
 
 log = logging.getLogger("main")
 
@@ -70,6 +72,8 @@ class Config(BaseSettings):
     MAX_CONCURRENT_DOWNLOADS: int = 3
     CLEAR_COMPLETED_AFTER: int = 0
     YTDL_NIGHTLY_UPDATE_TIME: str = ""
+    AUTH_USERS: list[str] = []
+    AUTH_SECRET: str = ""
 
     @field_validator("CLEAR_COMPLETED_AFTER")
     @classmethod
@@ -90,6 +94,15 @@ class Config(BaseSettings):
             self.TEMP_DIR = self.DOWNLOAD_DIR
         if self.PUBLIC_HOST_URL and not self.PUBLIC_HOST_URL.endswith("/"):
             self.PUBLIC_HOST_URL += "/"
+
+    def auth_credentials(self) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for entry in self.AUTH_USERS:
+            if ":" not in entry:
+                raise ValueError(f"AUTH_USERS entry {entry!r} must be 'username:password'")
+            username, _, password = entry.partition(":")
+            result[username] = password
+        return result
 
 
 def _load_config() -> Config:
@@ -130,7 +143,10 @@ class CORSPlugin:
 
 app = Bottle()
 if _cors_origins := [o.strip() for o in config.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]:
-    app.install(CORSPlugin(_cors_origins))
+    app.install(CORSPlugin(origins=_cors_origins))
+if _auth_users := config.auth_credentials():
+    _auth_secret = config.AUTH_SECRET or secrets.token_hex(32)
+    app.install(AuthPlugin(users=_auth_users, secret=_auth_secret, base_dir=config.BASE_DIR))
 job_manager = JobManager(config)
 
 
@@ -189,6 +205,12 @@ def _default_error_handler(err: HTTPError) -> str:
 
 
 app.default_error_handler = _default_error_handler
+
+
+@app.route("/config", method="GET")
+@without_auth
+def frontend_config() -> dict[str, Any]:
+    return ConfigResponse(auth_enabled=bool(_auth_users)).model_dump()
 
 
 @app.post("/jobs")
@@ -280,6 +302,7 @@ def cookie_status() -> dict[str, Any]:
 
 
 @app.get("/download/<filepath:path>")
+@without_auth
 def serve_download(filepath: str):
     target = (config.DOWNLOAD_DIR / unquote(filepath)).resolve()
     if target.is_relative_to(config.STATE_DIR.resolve()):
@@ -288,11 +311,13 @@ def serve_download(filepath: str):
 
 
 @app.get("/")
+@without_auth
 def index():
     return static_file("index.html", root=str(config.BASE_DIR / "ui"))
 
 
 @app.get("/<filepath:path>")
+@without_auth
 def static_ui(filepath: str):
     return static_file(filepath, root=str(config.BASE_DIR / "ui"))
 
