@@ -36,7 +36,7 @@ function app() {
     downloadType: /** @type {'video'|'audio'} */ ("video"),
     codec: "auto",
     format: "mp4",
-    quality: "best",
+    quality: "1080",
 
     /** @type {Download[]} */
     queue: [],
@@ -375,7 +375,7 @@ function app() {
     /** Reset format and quality to sensible defaults when type changes. */
     onTypeChange() {
       this.format = this.downloadType === "video" ? "mp4" : "m4a";
-      this.quality = "best";
+      this.quality = this.downloadType === "video" ? "1080" : "best";
     },
 
     /**
