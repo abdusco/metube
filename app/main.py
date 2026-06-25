@@ -309,7 +309,7 @@ def serve_download(filepath: str):
     if target.is_relative_to(config.STATE_DIR.resolve()):
         log.warning("Attempt to access file in state directory: %s", target)
         abort(404)
-    return static_file(filepath, root=str(config.DOWNLOAD_DIR))
+    return static_file(unquote(filepath), root=str(config.DOWNLOAD_DIR))
 
 
 @app.get("/")
