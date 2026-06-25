@@ -87,7 +87,10 @@ function app() {
         this._fetchConfig(),
       ]);
 
-      setInterval(() => this.pollState(), 2000);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) this.pollState();
+      });
+      this._schedulePoll();
     },
 
     async pollState() {
@@ -172,6 +175,19 @@ function app() {
     async retryDownload(dl) {
       await this._fetch(`jobs/${dl.id}/retry`, { method: "POST" });
       await this.pollState();
+    },
+
+    _schedulePoll() {
+      const hasActive = this.queue.some(
+        (d) => d.status === "running" || d.status === "queued",
+      );
+      setTimeout(
+        async () => {
+          if (!document.hidden) await this.pollState();
+          this._schedulePoll();
+        },
+        hasActive ? 2000 : 6000,
+      );
     },
 
     async _fetchConfig() {
